@@ -1,0 +1,65 @@
+# 命名规则：基于 LLVM Coding Standards（Name Types, Functions, Variables, and Enumerators Properly）
+# 机器约束由 clang-tidy 的 readability-identifier-naming 检查执行：
+#   clang-tidy -p <build>/compile_commands.json --fix <file>
+#
+# 本地偏差（与标准 LLVM 不同，见 Libraries/CODING_STYLE.md）：
+#   1. 注释允许中文
+#   2. 函数/方法命名采用 LLVM 现行规范（PascalCase；LLVM 存量代码为 camelCase）
+#
+# 存量违规（PID/kalman_filter 等旧代码）按 CODING_STYLE.md 的迁移流程渐进处理。
+Checks: '-*,readability-identifier-naming'
+WarningsAsErrors: ''
+HeaderFilterRegex: '/Libraries/'
+CheckOptions:
+  # ---- 类型 ----
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  # ---- 函数与方法 ----
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+  - key: readability-identifier-naming.MethodCase
+    value: CamelCase
+  # ---- 数据成员：snake_case + 尾下划线（Google 对私有成员的要求，本库统一应用于全部成员）----
+  - key: readability-identifier-naming.MemberCase
+    value: CamelCase
+  # ---- 变量与参数 ----
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.StaticVariableCase
+    value: camelBack
+  # ---- 常量：与普通变量一致（LLVM 无 k 前缀惯例）----
+  - key: readability-identifier-naming.ConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.StaticConstantCase
+    value: camelBack
+  # ---- 枚举值：PascalCase（LLVM 惯例）----
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  # ---- 宏：仅宏允许全大写蛇形 ----
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  # ---- 命名空间：小写蛇形 ----
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
