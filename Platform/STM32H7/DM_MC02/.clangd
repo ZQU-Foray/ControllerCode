@@ -1,0 +1,8 @@
+CompileFlags:
+  Add: [-mthumb]
+  Remove: [-fcyclomatic-complexity]
+Index:
+  Background: Build
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
