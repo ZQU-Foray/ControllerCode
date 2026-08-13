@@ -2,10 +2,16 @@
 #include "Detail/Can.h"
 #include "Detail/Spi.h"
 #include "Detail/Time.h"
+#include "Detail/Uart.h"
 
 bool Port_Init(void)
 {
   if (!TimePort_Init())
+  {
+    return false;
+  }
+
+  if (!UartPort_Init())
   {
     return false;
   }

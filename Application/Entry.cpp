@@ -3,6 +3,7 @@
 #include "Gpio.hpp"
 #include "Spi.hpp"
 #include "Time.hpp"
+#include "Uart.hpp"
 
 bool Application_Init(void) {
   if (!platform::Time::IsReady()) {
@@ -23,6 +24,11 @@ bool Application_Init(void) {
   if (!platform::Spi::IsReady(platform::Spi::Device::ImuAccelerometer) ||
       !platform::Spi::IsReady(platform::Spi::Device::ImuGyroscope) ||
       !platform::Spi::IsReady(platform::Spi::Device::AddressableLed)) {
+    return false;
+  }
+
+  if (!platform::Uart::IsReady(platform::Uart::Endpoint::RemoteReceiver) ||
+      !platform::Uart::IsReady(platform::Uart::Endpoint::DebugConsole)) {
     return false;
   }
 

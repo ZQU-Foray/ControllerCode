@@ -70,6 +70,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/Port/Can.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Port/Spi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Application/Entry.cpp
     PROPERTIES COMPILE_OPTIONS "-Wextra;-Werror"
 )
