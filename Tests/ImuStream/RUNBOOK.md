@@ -74,6 +74,7 @@ python3 Tests/ImuStream/imu_stream_tool.py decode \
 
 - 测试 A/B 中两路新增 gap / coalesced / overflow / DMA error 均为 0；
 - 测试 B 主机侧 CRC 错误、结构非法帧、首帧后重同步、帧序号缺口均为 0；
+  尾部截断帧（deadline 截断的最后一帧）不超过 1，不计入失败；
 - 陀螺平均速率接近 2000 Hz、加速度计接近 1600 Hz；
 - 99.9% 的 `drdyTick` 间隔落在标称周期 ±10% 内；
 - 每条记录保留原始 `xyz` 与时间戳，主机解码与板端入队逐位一致；

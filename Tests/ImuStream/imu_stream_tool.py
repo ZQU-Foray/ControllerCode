@@ -174,16 +174,19 @@ def decode(args: argparse.Namespace) -> int:
     malformed_frames = 0
     resync_events = 0
     resync_after_first = 0
+    truncated_tail_frames = 0
     frame_count = 0
     sequence_gaps = 0
+    record_sequence_gaps = {"gyro": 0, "accel": 0}
+    record_drdy_gaps = {"gyro": 0, "accel": 0}
     previous_frame_sequence: int | None = None
     tick_hz = 0
     config_id = 0
     sensor_counts = {"gyro": 0, "accel": 0}
     dt_ticks: dict[str, list[int]] = {"gyro": [], "accel": []}
     last_drdy: dict[str, int | None] = {"gyro": None, "accel": None}
-    first_tick: dict[str, int | None] = {"gyro": None, "accel": None}
-    last_tick: dict[str, int | None] = {"gyro": None, "accel": None}
+    last_sequence: dict[str, int | None] = {"gyro": None, "accel": None}
+    last_drdy_sequence: dict[str, int | None] = {"gyro": None, "accel": None}
     dropped_first: int | None = None
     dropped_last: int | None = None
     row_count = 0
@@ -203,7 +206,11 @@ def decode(args: argparse.Namespace) -> int:
     while offset < len(buffer):
         try:
             frame, frame_size = decode_frame(buffer, offset)
-        except ResyncNeeded:
+        except ResyncNeeded as error:
+            if str(error) == "尾部长度不足":
+                # 文件末尾剩余字节不足一个帧头：deadline 截断的固有尾部残留。
+                truncated_tail_frames += 1
+                break
             resync_events += 1
             if frame_count > 0:
                 resync_after_first += 1
@@ -213,6 +220,11 @@ def decode(args: argparse.Namespace) -> int:
         except FrameError as error:
             if str(error).startswith("CRC"):
                 crc_errors += 1
+            elif (str(error) == "帧数据不完整"
+                  and len(buffer) - offset < MAX_FRAME_SIZE):
+                # 最后一帧被采集 deadline 拦腰截断：捕获固有现象，不计入失败。
+                truncated_tail_frames += 1
+                break
             else:
                 malformed_frames += 1
             next_offset = find_next_magic(buffer, offset + 1)
@@ -244,9 +256,17 @@ def decode(args: argparse.Namespace) -> int:
                 dt_ticks[name].append(
                     (record["drdy_tick"] - previous) & 0xFFFFFFFF)
             else:
-                first_tick[name] = record["drdy_tick"]
+                pass
+            # 逐样本序号连续性（回绕安全）：对应验收 Q1 的 sequence gap。
+            prev_seq = last_sequence[name]
+            if prev_seq is not None and ((record["sequence"] - prev_seq) & 0xFFFFFFFF) != 1:
+                record_sequence_gaps[name] += 1
+            last_sequence[name] = record["sequence"]
+            prev_drdy_seq = last_drdy_sequence[name]
+            if prev_drdy_seq is not None and ((record["drdy_sequence"] - prev_drdy_seq) & 0xFFFFFFFF) != 1:
+                record_drdy_gaps[name] += 1
+            last_drdy_sequence[name] = record["drdy_sequence"]
             last_drdy[name] = record["drdy_tick"]
-            last_tick[name] = record["drdy_tick"]
             row_count += 1
             if writer is not None:
                 writer.writerow([
@@ -265,7 +285,8 @@ def decode(args: argparse.Namespace) -> int:
     print(f"文件：{args.bin}（{len(buffer)} 字节）")
     print(f"有效帧：{frame_count}，样本行：{row_count}")
     print(f"CRC 错误：{crc_errors}，结构非法帧：{malformed_frames}，"
-          f"重同步事件：{resync_events}（首帧之后 {resync_after_first}）")
+          f"重同步事件：{resync_events}（首帧之后 {resync_after_first}），"
+          f"尾部截断帧：{truncated_tail_frames}")
     print(f"帧序号缺口：{sequence_gaps}")
     print(f"tickHz：{tick_hz}，配置 ID：0x{config_id:08X} "
           f"{config_id_fields(config_id)}")
@@ -282,6 +303,8 @@ def decode(args: argparse.Namespace) -> int:
         failures.append(f"CRC 错误 {crc_errors}")
     if malformed_frames:
         failures.append(f"结构非法帧 {malformed_frames}")
+    if truncated_tail_frames > 1:
+        failures.append(f"尾部截断帧 {truncated_tail_frames} > 1")
     if resync_after_first:
         failures.append(f"首帧之后重同步 {resync_after_first} 次")
     if sequence_gaps:
@@ -293,11 +316,20 @@ def decode(args: argparse.Namespace) -> int:
         if sensor_counts[name] == 0:
             failures.append(f"{name} 无样本")
             continue
-        span_ticks = (last_tick[name] - first_tick[name]) & 0xFFFFFFFF
+        # 回绕安全的时长：逐样本 dt 之和（长捕获会多次绕过 32 位 tick 空间）。
+        span_ticks = sum(dt_ticks[name])
         span_seconds = span_ticks / tick_hz if tick_hz else 0.0
         rate = (sensor_counts[name] - 1) / span_seconds if span_seconds > 0 else 0.0
         print(f"{name}：样本 {sensor_counts[name]}，时长 {span_seconds:.3f} s，"
               f"实测速率 {rate:.1f} Hz（标称 {nominal_hz:.0f} Hz）")
+        print(f"  样本序号缺口 {record_sequence_gaps[name]}，"
+              f"DRDY 序号缺口 {record_drdy_gaps[name]}")
+        if record_sequence_gaps[name]:
+            failures.append(
+                f"{name} 样本序号缺口 {record_sequence_gaps[name]}")
+        if record_drdy_gaps[name]:
+            failures.append(
+                f"{name} DRDY 序号缺口 {record_drdy_gaps[name]}")
         if span_seconds <= 0 or abs(rate - nominal_hz) / nominal_hz > 0.01:
             failures.append(f"{name} 速率偏离标称超过 1%")
 
