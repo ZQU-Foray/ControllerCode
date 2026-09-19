@@ -9,6 +9,8 @@ extern "C" {
 
 bool Application_Init(void);
 
+void Application_RunOnce(void);
+
 #ifdef __cplusplus
 }
 #endif

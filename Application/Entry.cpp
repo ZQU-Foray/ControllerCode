@@ -1,4 +1,6 @@
 #include "Entry.h"
+#include "Application/Task/4_communication/RemoteReceiver.hpp"
+#include "Application/Task/TaskManager.hpp"
 #include "Can.hpp"
 #include "Gpio.hpp"
 #include "Spi.hpp"
@@ -12,6 +14,11 @@ bool Application_Init(void) {
 
   platform::Gpio::Level keyLevel = platform::Gpio::Level::Low;
   if (!platform::Gpio::Read(platform::Gpio::Pin::UserKey, keyLevel)) {
+    return false;
+  }
+
+  platform::Gpio::Level Power5VLevel = platform::Gpio::Level::High;
+  if (!platform::Gpio::Write(platform::Gpio::Pin::Power5V, Power5VLevel)) {
     return false;
   }
 
@@ -32,5 +39,13 @@ bool Application_Init(void) {
     return false;
   }
 
-  return true;
+  if (!application::task::TaskManager::Init()) {
+    return false;
+  }
+  return application::RemoteReceiver::Init();
+}
+
+void Application_RunOnce(void) {
+  (void)application::task::TaskManager::Start();
+  application::RemoteReceiver::Process();
 }
