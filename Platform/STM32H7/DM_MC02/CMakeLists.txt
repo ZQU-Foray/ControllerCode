@@ -37,14 +37,47 @@ enable_language(C CXX ASM)
 
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE $<$<CONFIG:Debug>:IMU_ENABLE_DIAGNOSTICS>)
+
+# Sensor-register-only A/B diagnostic; never changes CubeMX SPI configuration.
+set(IMU_GYRO_BANDWIDTH "532" CACHE STRING "BMI088 gyro bandwidth: 532 or 116 Hz")
+set_property(CACHE IMU_GYRO_BANDWIDTH PROPERTY STRINGS 532 116)
+if(IMU_GYRO_BANDWIDTH STREQUAL "532")
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE BMI088_GYRO_BANDWIDTH_REGISTER=0x00U)
+elseif(IMU_GYRO_BANDWIDTH STREQUAL "116")
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE BMI088_GYRO_BANDWIDTH_REGISTER=0x02U)
+else()
+    message(FATAL_ERROR "IMU_GYRO_BANDWIDTH must be 532 or 116")
+endif()
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/USB_DEVICE/Target/usbd_conf.c"
+    USB_DEVICE_LOW_LEVEL_SOURCE)
+if(NOT USB_DEVICE_LOW_LEVEL_SOURCE MATCHES
+   "hpcd_USB_OTG_HS\\.Init\\.dma_enable[ \t]*=[ \t]*ENABLE")
+    message(FATAL_ERROR
+        "USB OTG HS internal DMA must remain enabled after CubeMX generation")
+endif()
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Port/UsbCdc.c"
+    USB_CDC_PORT_SOURCE)
+if(NOT USB_CDC_PORT_SOURCE MATCHES
+   "gpio_init\\.Alternate[ \t]*=[ \t]*GPIO_AF10_OTG1_FS")
+    message(FATAL_ERROR
+        "USB OTG HS PA11/PA12 alternate-function setup is missing from UsbCdc Port")
+endif()
 
 # Add the platform-independent interface.
 add_subdirectory(
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Interface
     ${CMAKE_CURRENT_BINARY_DIR}/platform_interface
+)
+
+# Add the platform-independent Porting Kit (queue / notifier / critical section).
+add_subdirectory(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../PortKit
+    ${CMAKE_CURRENT_BINARY_DIR}/portkit
 )
 
 # Link directories setup
@@ -60,6 +93,10 @@ file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Application/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Algorithm/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Algorithm/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Device/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Device/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Protocol/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Protocol/*.cpp
 )
 
 # Add sources to executable
@@ -67,13 +104,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${PROJECT_SOURCES}
 )
 
-set_source_files_properties(
-    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Can.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Spi.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Port/Uart.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Application/Entry.cpp
-    PROPERTIES COMPILE_OPTIONS "-Wextra;-Werror"
-)
+# 严格编译（-Wextra -Werror）自动应用于全部业务源文件（随 PROJECT_SOURCES
+# 收集，新增/删除/改名文件零维护）。若有目录暂未达标，可先用 foreach 对
+# PROJECT_SOURCES 按 MATCHES 过滤暂免，清零告警后恢复全量。
+set_source_files_properties(${PROJECT_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wextra;-Werror")
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
@@ -95,9 +129,14 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
     platform_interface
+    portkit
 
     # CMSIS-DSP
     arm_cortexM7lfsp_math
+)
+
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    "-Wl,--wrap=HAL_PCD_EP_Transmit"
 )
 
 # Generate standard firmware images next to the ELF file.
@@ -138,5 +177,5 @@ if(OPENOCD_EXECUTABLE AND EXISTS "${OPENOCD_CONFIG}")
         COMMENT "Starting the STM32H723 OpenOCD server"
     )
 else()
-    message(WARNING "OpenOCD not found; flash targets are unavailable")
+    message(STATUS "OpenOCD board configuration not found; flash targets are unavailable")
 endif()

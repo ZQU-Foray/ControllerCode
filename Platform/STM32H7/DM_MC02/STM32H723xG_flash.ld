@@ -63,8 +63,8 @@ ITCMRAM (xrw)      : ORIGIN = 0x00000000, LENGTH = 64K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 1024K
 }
 
-/* Highest address of the user mode stack */
-_estack = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM);    /* end of RAM */
+/* Keep the interrupt stack in DMA-visible AXI SRAM for USB control transfers. */
+_estack = ORIGIN(RAM_D1) + LENGTH(RAM_D1);    /* end of RAM */
 _sstack = _estack - _Min_Stack_Size;
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
@@ -166,7 +166,7 @@ SECTIONS
     *(.RamFunc*)       /* .RamFunc* sections */
 
     . = ALIGN(4);
-  } >DTCMRAM AT> FLASH
+  } >RAM_D1 AT> FLASH
 
  /* Initialized TLS data section */
   .tdata : ALIGN(4)
@@ -176,7 +176,7 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
     PROVIDE(__data_end = .);
     PROVIDE(__tdata_end = .);
-  } >DTCMRAM AT> FLASH
+  } >RAM_D1 AT> FLASH
 
   PROVIDE( __tdata_start = ADDR(.tdata) );
   PROVIDE( __tdata_size = __tdata_end - __tdata_start );
@@ -214,6 +214,33 @@ SECTIONS
   PROVIDE( __arm32_tls_tcb_offset = MAX(8, __tls_align) );
   PROVIDE( __arm64_tls_tcb_offset = MAX(16, __tls_align) );
 
+  /* USB DMA state preserves .bss semantics through UsbCdcPort_Init(). */
+  .usb_dma_buffer (NOLOAD) :
+  {
+    . = ALIGN(32);
+    __usb_dma_buffer_start__ = .;
+    *(.bss.hpcd_USB_OTG_HS)
+    *(.bss.mem.0)
+    *(.bss.USBD_StrDesc)
+    *(.bss.UserRxBufferHS)
+    *(.bss.UserTxBufferHS)
+    *(.usb_dma_buffer)
+    *(.usb_dma_buffer*)
+    . = ALIGN(32);
+    __usb_dma_buffer_end__ = .;
+  } >RAM_D1
+
+  /* DMA1/DMA2 buffers: AXI SRAM is accessible, DTCM is not. */
+  .dma_buffer (NOLOAD) :
+  {
+    . = ALIGN(32);
+    *(.dma_buffer)
+    *(.dma_buffer*)
+    . = ALIGN(32);
+  } >RAM_D1
+
+  ASSERT(. <= _sstack, "RAM_D1 data and DMA buffers overlap the interrupt stack")
+
   .bss (NOLOAD) : ALIGN(4)
   {
     *(.bss)
@@ -229,15 +256,6 @@ SECTIONS
 
   PROVIDE( __bss_start = __tbss_start );
   PROVIDE( __bss_size = __bss_end - __bss_start );
-
-  /* DMA1/DMA2 buffers: AXI SRAM is accessible, DTCM is not */
-  .dma_buffer (NOLOAD) :
-  {
-    . = ALIGN(32);
-    *(.dma_buffer)
-    *(.dma_buffer*)
-    . = ALIGN(32);
-  } >RAM_D1
 
   /* BDMA buffers: BDMA is limited to SRAM4 in the D3 domain */
   .bdma_buffer (NOLOAD) :

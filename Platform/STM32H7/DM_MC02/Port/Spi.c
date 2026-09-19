@@ -1,4 +1,5 @@
 #include "Detail/Spi.h"
+#include "PortKit.h"
 #include "main.h"
 #include "spi.h"
 #include <limits.h>
@@ -75,17 +76,6 @@ _Static_assert(sizeof(spi_port_mappings) / sizeof(spi_port_mappings[0]) == SPI_P
 _Static_assert((SPI_PORT_MAX_ASYNC_LENGTH % SPI_PORT_CACHE_LINE_SIZE) == 0U,
                "SPI asynchronous buffer size must be cache-line aligned");
 
-static bool SpiPort_GetMapping(SpiPort_Device device, const SpiPort_Mapping **mapping)
-{
-  if (mapping == NULL || device >= SPI_PORT_DEVICE_COUNT)
-  {
-    return false;
-  }
-
-  *mapping = &spi_port_mappings[device];
-  return (*mapping)->handle != NULL && (*mapping)->busy != NULL && (*mapping)->async_state != NULL;
-}
-
 static SpiPort_AsyncState *SpiPort_GetAsyncStateFromHandle(SPI_HandleTypeDef *handle)
 {
   if (handle == spi2_async_state.handle)
@@ -103,30 +93,28 @@ static SpiPort_AsyncState *SpiPort_GetAsyncStateFromHandle(SPI_HandleTypeDef *ha
 
 static bool SpiPort_TryAcquire(const SpiPort_Mapping *mapping)
 {
-  const uint32_t interrupt_mask = __get_PRIMASK();
+  const uint32_t interrupt_mask = PortKit_Critical_Enter();
   bool acquired;
 
-  __disable_irq();
   acquired = *mapping->busy == 0U;
   if (acquired)
   {
     *mapping->busy = 1U;
     __DMB();
   }
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Critical_Exit(interrupt_mask);
 
   return acquired;
 }
 
 static void SpiPort_Release(const SpiPort_Mapping *mapping)
 {
-  const uint32_t interrupt_mask = __get_PRIMASK();
+  const uint32_t interrupt_mask = PortKit_Critical_Enter();
 
-  __disable_irq();
   __DMB();
   *mapping->busy = 0U;
   __DMB();
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Critical_Exit(interrupt_mask);
 }
 
 static void SpiPort_Select(const SpiPort_Mapping *mapping)
@@ -167,11 +155,12 @@ static SpiPort_Result SpiPort_MapStatus(HAL_StatusTypeDef status)
 
 static SpiPort_Result SpiPort_Prepare(SpiPort_Device device, const SpiPort_Mapping **mapping)
 {
-  if (!SpiPort_GetMapping(device, mapping))
+  if (device >= SPI_PORT_DEVICE_COUNT)
   {
     return SPI_PORT_RESULT_INVALID_ARGUMENT;
   }
 
+  *mapping = &spi_port_mappings[device];
   if (!spi_port_initialized)
   {
     return SPI_PORT_RESULT_NOT_READY;
@@ -387,11 +376,10 @@ static void SpiPort_FinalizeAsync(SpiPort_AsyncState *state, SpiPort_Result resu
     return;
   }
 
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
+  interrupt_mask = PortKit_Critical_Enter();
   if (!state->active)
   {
-    __set_PRIMASK(interrupt_mask);
+    PortKit_Critical_Exit(interrupt_mask);
     return;
   }
 
@@ -410,7 +398,7 @@ static void SpiPort_FinalizeAsync(SpiPort_AsyncState *state, SpiPort_Result resu
   state->notification = NULL;
   state->notification_context = NULL;
   __DMB();
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Critical_Exit(interrupt_mask);
 
   mapping = &spi_port_mappings[device];
   SpiPort_Deselect(mapping);
@@ -472,8 +460,7 @@ static SpiPort_Result SpiPort_StartAsync(SpiPort_Device device,
     SpiPort_PrepareReceiveBuffer(state->receive_dma_buffer, length);
   }
 
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
+  interrupt_mask = PortKit_Critical_Enter();
   state->spi_completed = false;
   state->transmit_dma_completed = false;
   state->transfer = transfer;
@@ -508,7 +495,7 @@ static SpiPort_Result SpiPort_StartAsync(SpiPort_Device device,
     spi_port_async_results[device] = result;
   }
   __DMB();
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Critical_Exit(interrupt_mask);
 
   if (status == HAL_OK)
   {
@@ -540,9 +527,9 @@ bool SpiPort_Init(void)
 
   for (SpiPort_Device device = 0U; device < SPI_PORT_DEVICE_COUNT; ++device)
   {
-    const SpiPort_Mapping *mapping;
+    const SpiPort_Mapping *const mapping = &spi_port_mappings[device];
 
-    if (!SpiPort_GetMapping(device, &mapping) || HAL_SPI_GetState(mapping->handle) != HAL_SPI_STATE_READY)
+    if (HAL_SPI_GetState(mapping->handle) != HAL_SPI_STATE_READY)
     {
       return false;
     }
@@ -556,10 +543,14 @@ bool SpiPort_Init(void)
 
 bool SpiPort_IsReady(SpiPort_Device device)
 {
-  const SpiPort_Mapping *mapping;
+  if (!spi_port_initialized || device >= SPI_PORT_DEVICE_COUNT)
+  {
+    return false;
+  }
 
-  return spi_port_initialized && SpiPort_GetMapping(device, &mapping) && *mapping->busy == 0U &&
-         HAL_SPI_GetState(mapping->handle) == HAL_SPI_STATE_READY && SpiPort_IsAsyncStateReady(mapping->async_state);
+  const SpiPort_Mapping *const mapping = &spi_port_mappings[device];
+  return *mapping->busy == 0U && HAL_SPI_GetState(mapping->handle) == HAL_SPI_STATE_READY &&
+         SpiPort_IsAsyncStateReady(mapping->async_state);
 }
 
 SpiPort_Result SpiPort_Transmit(SpiPort_Device device, const uint8_t *data, uint32_t length, uint32_t timeout_ms)

@@ -22,7 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-#include "User_Files/BSP/bsp_usb/Usb.h"
+#include "UsbCdc.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -95,6 +95,7 @@ uint8_t UserRxBufferHS[APP_RX_DATA_SIZE];
 uint8_t UserTxBufferHS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
+static uint8_t cdcLineCoding[7] = {0x00U, 0xC2U, 0x01U, 0x00U, 0x00U, 0x00U, 0x08U};
 
 /* USER CODE END PRIVATE_VARIABLES */
 
@@ -156,9 +157,7 @@ static int8_t CDC_Init_HS(void)
   /* USER CODE BEGIN 8 */
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceHS, UserTxBufferHS, 0);
-  USBD_CDC_SetRxBuffer(&hUsbDeviceHS, UserRxBufferHS);
-  USB_ConnectCallback();
-  return (USBD_OK);
+  return UsbCdcPort_HandleConfigured(UserRxBufferHS) ? (USBD_OK) : (USBD_FAIL);
   /* USER CODE END 8 */
 }
 
@@ -170,7 +169,7 @@ static int8_t CDC_Init_HS(void)
 static int8_t CDC_DeInit_HS(void)
 {
   /* USER CODE BEGIN 9 */
-  USB_DisconnectCallback();
+  UsbCdcPort_HandleDisconnected();
   return (USBD_OK);
   /* USER CODE END 9 */
 }
@@ -225,11 +224,25 @@ static int8_t CDC_Control_HS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   /* 6      | bDataBits  |   1   | Number Data bits (5, 6, 7, 8 or 16).          */
   /*******************************************************************************/
   case CDC_SET_LINE_CODING:
-
+    if (pbuf == NULL || length < sizeof(cdcLineCoding))
+    {
+      return (USBD_FAIL);
+    }
+    for (uint32_t index = 0U; index < sizeof(cdcLineCoding); ++index)
+    {
+      cdcLineCoding[index] = pbuf[index];
+    }
     break;
 
   case CDC_GET_LINE_CODING:
-
+    if (pbuf == NULL || length < sizeof(cdcLineCoding))
+    {
+      return (USBD_FAIL);
+    }
+    for (uint32_t index = 0U; index < sizeof(cdcLineCoding); ++index)
+    {
+      pbuf[index] = cdcLineCoding[index];
+    }
     break;
 
   case CDC_SET_CONTROL_LINE_STATE:
@@ -270,7 +283,7 @@ static int8_t CDC_Receive_HS(uint8_t* Buf, uint32_t *Len)
   {
     return (USBD_FAIL);
   }
-  return ((int8_t)USB_ReceiveCallback(Buf, *Len));
+  return UsbCdcPort_HandleReceive(Buf, *Len) ? (USBD_OK) : (USBD_FAIL);
   /* USER CODE END 11 */
 }
 
@@ -319,7 +332,7 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
-  USB_TransmitCompleteCallback();
+  UsbCdcPort_HandleTransmitComplete();
   /* USER CODE END 14 */
   return result;
 }

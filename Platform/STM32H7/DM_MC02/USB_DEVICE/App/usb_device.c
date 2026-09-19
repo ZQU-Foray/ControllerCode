@@ -27,6 +27,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN Includes */
+#include "UsbCdc.h"
 
 /* USER CODE END Includes */
 
@@ -64,6 +65,10 @@ USBD_HandleTypeDef hUsbDeviceHS;
 void MX_USB_DEVICE_Init(void)
 {
   /* USER CODE BEGIN USB_DEVICE_Init_PreTreatment */
+  if (!UsbCdcPort_Init())
+  {
+    Error_Handler();
+  }
 
   /* USER CODE END USB_DEVICE_Init_PreTreatment */
 

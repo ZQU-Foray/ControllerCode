@@ -1,4 +1,5 @@
 #include "Detail/Uart.h"
+#include "PortKit.h"
 #include "main.h"
 #include "usart.h"
 #include <stddef.h>
@@ -9,9 +10,10 @@ enum
   UART_PORT_CACHE_LINE_SIZE = 32U,
   UART_PORT_RX_DMA_CAPACITY = 64U,
   UART_PORT_RX_QUEUE_CAPACITY = 256U,
-  UART_PORT_RX_QUEUE_MASK = UART_PORT_RX_QUEUE_CAPACITY - 1U,
   UART_PORT_TX_DMA_CAPACITY = UART_PORT_MAX_TRANSMIT_SIZE
 };
+
+PORTKIT_STATIC_ASSERT_POWER_OF_TWO(UART_PORT_RX_QUEUE_CAPACITY);
 
 typedef struct
 {
@@ -24,9 +26,8 @@ typedef struct
 
 typedef struct
 {
-  uint8_t receive_queue[UART_PORT_RX_QUEUE_CAPACITY];
-  volatile uint32_t head;
-  volatile uint32_t tail;
+  PortKit_Queue receive_queue;
+  uint8_t receive_queue_buffer[UART_PORT_RX_QUEUE_CAPACITY];
   volatile uint32_t received_byte_count;
   volatile uint32_t dropped_byte_count;
   volatile uint32_t error_event_count;
@@ -34,10 +35,8 @@ typedef struct
   volatile uint32_t transmitted_byte_count;
   volatile uint32_t transmit_failure_count;
   volatile uint32_t transmit_length;
-  UartPort_ReceiveNotification receive_notification;
-  void *receive_notification_context;
-  UartPort_TransmitNotification transmit_notification;
-  void *transmit_notification_context;
+  PortKit_Notifier receive_notifier;
+  PortKit_Notifier transmit_notifier;
   volatile bool transmit_active;
   volatile bool initialized;
 } UartPort_State;
@@ -65,38 +64,23 @@ static UartPort_State uart_port_states[UART_PORT_ENDPOINT_COUNT];
 
 _Static_assert(sizeof(uart_port_mappings) / sizeof(uart_port_mappings[0]) == UART_PORT_ENDPOINT_COUNT,
                "UART endpoint count mismatch");
-_Static_assert((UART_PORT_RX_QUEUE_CAPACITY & UART_PORT_RX_QUEUE_MASK) == 0U,
-               "UART receive queue capacity must be a power of two");
 _Static_assert((UART_PORT_RX_DMA_CAPACITY % UART_PORT_CACHE_LINE_SIZE) == 0U,
                "UART DMA buffer capacity must be cache-line aligned");
 _Static_assert((UART_PORT_TX_DMA_CAPACITY % UART_PORT_CACHE_LINE_SIZE) == 0U,
                "UART transmit DMA capacity must be cache-line aligned");
 
-static bool UartPort_GetMapping(UartPort_Endpoint endpoint, const UartPort_Mapping **mapping)
-{
-  if (mapping == NULL || endpoint >= UART_PORT_ENDPOINT_COUNT)
-  {
-    return false;
-  }
-
-  *mapping = &uart_port_mappings[endpoint];
-  return (*mapping)->handle != NULL && (*mapping)->receive_dma_buffer != NULL && (*mapping)->receive_dma_capacity > 0U;
-}
-
 static bool UartPort_GetEndpoint(UART_HandleTypeDef *handle, UartPort_Endpoint *endpoint)
 {
-  if (handle == NULL || endpoint == NULL)
+  if (handle == uart_port_mappings[UART_PORT_ENDPOINT_REMOTE_RECEIVER].handle)
   {
-    return false;
+    *endpoint = UART_PORT_ENDPOINT_REMOTE_RECEIVER;
+    return true;
   }
 
-  for (UartPort_Endpoint index = 0U; index < UART_PORT_ENDPOINT_COUNT; ++index)
+  if (handle == uart_port_mappings[UART_PORT_ENDPOINT_DEBUG_CONSOLE].handle)
   {
-    if (uart_port_mappings[index].handle == handle)
-    {
-      *endpoint = index;
-      return true;
-    }
+    *endpoint = UART_PORT_ENDPOINT_DEBUG_CONSOLE;
+    return true;
   }
 
   return false;
@@ -161,8 +145,7 @@ static bool UartPort_StartReceive(const UartPort_Mapping *mapping)
 
 static void UartPort_ResetState(UartPort_State *state)
 {
-  state->head = 0U;
-  state->tail = 0U;
+  PortKit_Queue_Init(&state->receive_queue, state->receive_queue_buffer, UART_PORT_RX_QUEUE_CAPACITY);
   state->received_byte_count = 0U;
   state->dropped_byte_count = 0U;
   state->error_event_count = 0U;
@@ -170,10 +153,8 @@ static void UartPort_ResetState(UartPort_State *state)
   state->transmitted_byte_count = 0U;
   state->transmit_failure_count = 0U;
   state->transmit_length = 0U;
-  state->receive_notification = NULL;
-  state->receive_notification_context = NULL;
-  state->transmit_notification = NULL;
-  state->transmit_notification_context = NULL;
+  PortKit_Notifier_Set(&state->receive_notifier, NULL, NULL);
+  PortKit_Notifier_Set(&state->transmit_notifier, NULL, NULL);
   state->transmit_active = false;
   state->initialized = false;
   __DMB();
@@ -181,34 +162,18 @@ static void UartPort_ResetState(UartPort_State *state)
 
 static void UartPort_Enqueue(UartPort_State *state, const uint8_t *data, uint32_t length)
 {
-  const uint32_t head = state->head;
-  const uint32_t tail = state->tail;
-  const uint32_t used = head - tail;
-  const uint32_t available = used < UART_PORT_RX_QUEUE_CAPACITY ? UART_PORT_RX_QUEUE_CAPACITY - used : 0U;
-  const uint32_t accepted = length < available ? length : available;
-
-  for (uint32_t index = 0U; index < accepted; ++index)
-  {
-    state->receive_queue[(head + index) & UART_PORT_RX_QUEUE_MASK] = data[index];
-  }
+  const uint32_t accepted = PortKit_Queue_Push(&state->receive_queue, data, length);
 
   state->received_byte_count += length;
   state->dropped_byte_count += length - accepted;
-  __DMB();
-  state->head = head + accepted;
 }
 
 bool UartPort_Init(void)
 {
   for (UartPort_Endpoint endpoint = 0U; endpoint < UART_PORT_ENDPOINT_COUNT; ++endpoint)
   {
-    const UartPort_Mapping *mapping;
+    const UartPort_Mapping *const mapping = &uart_port_mappings[endpoint];
     UartPort_State *state;
-
-    if (!UartPort_GetMapping(endpoint, &mapping))
-    {
-      return false;
-    }
 
     state = &uart_port_states[endpoint];
     if (state->initialized)
@@ -236,34 +201,25 @@ bool UartPort_Init(void)
 
 bool UartPort_IsReady(UartPort_Endpoint endpoint)
 {
-  const UartPort_Mapping *mapping;
+  if (endpoint >= UART_PORT_ENDPOINT_COUNT)
+  {
+    return false;
+  }
 
-  return UartPort_GetMapping(endpoint, &mapping) && uart_port_states[endpoint].initialized &&
-         UartPort_IsReceiveActive(mapping);
+  const UartPort_Mapping *const mapping = &uart_port_mappings[endpoint];
+  return uart_port_states[endpoint].initialized && UartPort_IsReceiveActive(mapping);
 }
 
 bool UartPort_SetReceiveNotification(UartPort_Endpoint endpoint,
                                      UartPort_ReceiveNotification notification,
                                      void *context)
 {
-  uint32_t interrupt_mask;
-  UartPort_State *state;
-
   if (endpoint >= UART_PORT_ENDPOINT_COUNT)
   {
     return false;
   }
 
-  state = &uart_port_states[endpoint];
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
-  state->receive_notification = NULL;
-  __DMB();
-  state->receive_notification_context = context;
-  __DMB();
-  state->receive_notification = notification;
-  __DMB();
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Notifier_Set(&uart_port_states[endpoint].receive_notifier, notification, context);
   return true;
 }
 
@@ -271,24 +227,12 @@ bool UartPort_SetTransmitNotification(UartPort_Endpoint endpoint,
                                       UartPort_TransmitNotification notification,
                                       void *context)
 {
-  uint32_t interrupt_mask;
-  UartPort_State *state;
-
   if (endpoint >= UART_PORT_ENDPOINT_COUNT)
   {
     return false;
   }
 
-  state = &uart_port_states[endpoint];
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
-  state->transmit_notification = NULL;
-  __DMB();
-  state->transmit_notification_context = context;
-  __DMB();
-  state->transmit_notification = notification;
-  __DMB();
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Notifier_Set(&uart_port_states[endpoint].transmit_notifier, notification, context);
   return true;
 }
 
@@ -296,9 +240,6 @@ UartPort_ReceiveResult
 UartPort_TryRead(UartPort_Endpoint endpoint, uint8_t *data, uint32_t data_capacity, uint32_t *length)
 {
   UartPort_State *state;
-  uint32_t head;
-  uint32_t tail;
-  uint32_t available;
   uint32_t read_length;
 
   if (length == NULL)
@@ -313,23 +254,12 @@ UartPort_TryRead(UartPort_Endpoint endpoint, uint8_t *data, uint32_t data_capaci
   }
 
   state = &uart_port_states[endpoint];
-  head = state->head;
-  tail = state->tail;
-  available = head - tail;
-  if (available == 0U)
+  read_length = PortKit_Queue_Pop(&state->receive_queue, data, data_capacity);
+  if (read_length == 0U)
   {
     return UartPort_IsReady(endpoint) ? UART_PORT_RECEIVE_EMPTY : UART_PORT_RECEIVE_NOT_READY;
   }
 
-  __DMB();
-  read_length = available < data_capacity ? available : data_capacity;
-  for (uint32_t index = 0U; index < read_length; ++index)
-  {
-    data[index] = state->receive_queue[(tail + index) & UART_PORT_RX_QUEUE_MASK];
-  }
-
-  __DMB();
-  state->tail = tail + read_length;
   *length = read_length;
   return UART_PORT_RECEIVE_RECEIVED;
 }
@@ -340,11 +270,12 @@ UartPort_TransmitResult UartPort_TryWrite(UartPort_Endpoint endpoint, const uint
   UartPort_State *state;
   uint32_t interrupt_mask;
 
-  if (!UartPort_GetMapping(endpoint, &mapping) || data == NULL || length == 0U)
+  if (endpoint >= UART_PORT_ENDPOINT_COUNT || data == NULL || length == 0U)
   {
     return UART_PORT_TRANSMIT_INVALID_ARGUMENT;
   }
 
+  mapping = &uart_port_mappings[endpoint];
   if (mapping->transmit_dma_buffer == NULL || mapping->transmit_dma_capacity == 0U || mapping->handle->hdmatx == NULL)
   {
     return UART_PORT_TRANSMIT_NOT_SUPPORTED;
@@ -361,12 +292,11 @@ UartPort_TransmitResult UartPort_TryWrite(UartPort_Endpoint endpoint, const uint
     return UART_PORT_TRANSMIT_NOT_READY;
   }
 
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
+  interrupt_mask = PortKit_Critical_Enter();
   if (state->transmit_active || mapping->handle->gState != HAL_UART_STATE_READY ||
       HAL_DMA_GetState(mapping->handle->hdmatx) != HAL_DMA_STATE_READY)
   {
-    __set_PRIMASK(interrupt_mask);
+    PortKit_Critical_Exit(interrupt_mask);
     return UART_PORT_TRANSMIT_BUSY;
   }
 
@@ -385,17 +315,18 @@ UartPort_TransmitResult UartPort_TryWrite(UartPort_Endpoint endpoint, const uint
     state->transmit_length = 0U;
     ++state->transmit_failure_count;
     __DMB();
-    __set_PRIMASK(interrupt_mask);
+    PortKit_Critical_Exit(interrupt_mask);
     return UART_PORT_TRANSMIT_ERROR;
   }
 
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Critical_Exit(interrupt_mask);
   return UART_PORT_TRANSMIT_STARTED;
 }
 
 bool UartPort_GetStatistics(UartPort_Endpoint endpoint, UartPort_Statistics *statistics)
 {
   const UartPort_State *state;
+  uint32_t interrupt_mask;
 
   if (endpoint >= UART_PORT_ENDPOINT_COUNT || statistics == NULL)
   {
@@ -403,20 +334,20 @@ bool UartPort_GetStatistics(UartPort_Endpoint endpoint, UartPort_Statistics *sta
   }
 
   state = &uart_port_states[endpoint];
+  interrupt_mask = PortKit_Critical_Enter();
   statistics->received_byte_count = state->received_byte_count;
   statistics->dropped_byte_count = state->dropped_byte_count;
   statistics->error_event_count = state->error_event_count;
   statistics->restart_failure_count = state->restart_failure_count;
   statistics->transmitted_byte_count = state->transmitted_byte_count;
   statistics->transmit_failure_count = state->transmit_failure_count;
+  PortKit_Critical_Exit(interrupt_mask);
   return true;
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *handle)
 {
   UartPort_State *state;
-  UartPort_TransmitNotification notification;
-  void *notification_context;
   UartPort_Endpoint endpoint;
 
   if (!UartPort_GetEndpoint(handle, &endpoint))
@@ -434,20 +365,13 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *handle)
   state->transmit_length = 0U;
   state->transmit_active = false;
   __DMB();
-  notification = state->transmit_notification;
-  notification_context = state->transmit_notification_context;
-  if (notification != NULL)
-  {
-    notification(notification_context);
-  }
+  (void)PortKit_Notifier_Fire(&state->transmit_notifier);
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *handle, uint16_t size)
 {
   const UartPort_Mapping *mapping;
   UartPort_State *state;
-  UartPort_ReceiveNotification notification;
-  void *notification_context;
   UartPort_Endpoint endpoint;
   bool received = false;
 
@@ -486,11 +410,9 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *handle, uint16_t size)
     __DMB();
   }
 
-  notification = state->receive_notification;
-  notification_context = state->receive_notification_context;
-  if (received && notification != NULL)
+  if (received)
   {
-    notification(notification_context);
+    (void)PortKit_Notifier_Fire(&state->receive_notifier);
   }
 }
 
@@ -498,9 +420,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *handle)
 {
   const UartPort_Mapping *mapping;
   UartPort_State *state;
-  UartPort_TransmitNotification transmit_notification = NULL;
-  void *transmit_notification_context = NULL;
   UartPort_Endpoint endpoint;
+  bool transmit_completed = false;
 
   if (!UartPort_GetEndpoint(handle, &endpoint))
   {
@@ -520,9 +441,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *handle)
     state->transmit_length = 0U;
     state->transmit_active = false;
     ++state->transmit_failure_count;
+    transmit_completed = true;
     __DMB();
-    transmit_notification = state->transmit_notification;
-    transmit_notification_context = state->transmit_notification_context;
   }
 
   if (!UartPort_IsReceiveActive(mapping) && !UartPort_StartReceive(mapping))
@@ -532,8 +452,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *handle)
     __DMB();
   }
 
-  if (transmit_notification != NULL)
+  if (transmit_completed)
   {
-    transmit_notification(transmit_notification_context);
+    (void)PortKit_Notifier_Fire(&state->transmit_notifier);
   }
 }

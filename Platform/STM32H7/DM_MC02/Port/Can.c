@@ -1,4 +1,5 @@
 #include "Detail/Can.h"
+#include "PortKit.h"
 #include "fdcan.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -6,7 +7,6 @@
 enum
 {
   CAN_PORT_RX_QUEUE_CAPACITY = 128U,
-  CAN_PORT_RX_QUEUE_MASK = CAN_PORT_RX_QUEUE_CAPACITY - 1U,
   CAN_PORT_ISR_DRAIN_LIMIT = 16U
 };
 
@@ -18,6 +18,11 @@ typedef struct
   uint8_t data[CAN_PORT_MAX_DATA_LENGTH];
 } CanPort_Frame;
 
+enum
+{
+  CAN_PORT_RX_QUEUE_BYTE_CAPACITY = CAN_PORT_RX_QUEUE_CAPACITY * (uint32_t)sizeof(CanPort_Frame)
+};
+
 typedef struct
 {
   bool enabled;
@@ -27,15 +32,13 @@ typedef struct
 
 typedef struct
 {
-  CanPort_Frame frames[CAN_PORT_RX_QUEUE_CAPACITY];
-  volatile uint32_t head;
-  volatile uint32_t tail;
+  PortKit_Queue receive_queue;
+  uint8_t receive_queue_buffer[CAN_PORT_RX_QUEUE_BYTE_CAPACITY];
   volatile uint32_t rx_dropped_count;
   volatile uint32_t rx_hardware_loss_event_count;
   volatile uint32_t bus_off_count;
   CanPort_Filter filters[2];
-  CanPort_ReceiveNotification receive_notification;
-  void *receive_notification_context;
+  PortKit_Notifier receive_notifier;
 } CanPort_ChannelState;
 
 static FDCAN_HandleTypeDef *const can_port_handles[CAN_PORT_CHANNEL_COUNT] = {&hfdcan1, &hfdcan2, &hfdcan3};
@@ -47,34 +50,26 @@ static const uint32_t can_port_notifications =
 
 _Static_assert(sizeof(can_port_handles) / sizeof(can_port_handles[0]) == CAN_PORT_CHANNEL_COUNT,
                "CAN channel count mismatch");
-_Static_assert((CAN_PORT_RX_QUEUE_CAPACITY & CAN_PORT_RX_QUEUE_MASK) == 0U,
-               "CAN receive queue capacity must be a power of two");
-
-static bool CanPort_GetHandle(CanPort_Channel channel, FDCAN_HandleTypeDef **handle)
-{
-  if (handle == NULL || channel >= CAN_PORT_CHANNEL_COUNT)
-  {
-    return false;
-  }
-
-  *handle = can_port_handles[channel];
-  return *handle != NULL;
-}
+PORTKIT_STATIC_ASSERT_POWER_OF_TWO(CAN_PORT_RX_QUEUE_BYTE_CAPACITY);
 
 static bool CanPort_GetChannel(FDCAN_HandleTypeDef *handle, CanPort_Channel *channel)
 {
-  if (handle == NULL || channel == NULL)
+  if (handle == can_port_handles[CAN_PORT_CHANNEL_1])
   {
-    return false;
+    *channel = CAN_PORT_CHANNEL_1;
+    return true;
   }
 
-  for (CanPort_Channel index = 0U; index < CAN_PORT_CHANNEL_COUNT; ++index)
+  if (handle == can_port_handles[CAN_PORT_CHANNEL_2])
   {
-    if (can_port_handles[index] == handle)
-    {
-      *channel = index;
-      return true;
-    }
+    *channel = CAN_PORT_CHANNEL_2;
+    return true;
+  }
+
+  if (handle == can_port_handles[CAN_PORT_CHANNEL_3])
+  {
+    *channel = CAN_PORT_CHANNEL_3;
+    return true;
   }
 
   return false;
@@ -84,8 +79,7 @@ static void CanPort_ResetChannelState(CanPort_Channel channel)
 {
   CanPort_ChannelState *const state = &can_port_states[channel];
 
-  state->head = 0U;
-  state->tail = 0U;
+  PortKit_Queue_Init(&state->receive_queue, state->receive_queue_buffer, CAN_PORT_RX_QUEUE_BYTE_CAPACITY);
   state->rx_dropped_count = 0U;
   state->rx_hardware_loss_event_count = 0U;
   state->bus_off_count = 0U;
@@ -95,8 +89,7 @@ static void CanPort_ResetChannelState(CanPort_Channel channel)
   state->filters[CAN_PORT_IDENTIFIER_EXTENDED].enabled = true;
   state->filters[CAN_PORT_IDENTIFIER_EXTENDED].first_identifier = 0U;
   state->filters[CAN_PORT_IDENTIFIER_EXTENDED].last_identifier = 0x1FFFFFFFU;
-  state->receive_notification = NULL;
-  state->receive_notification_context = NULL;
+  PortKit_Notifier_Set(&state->receive_notifier, NULL, NULL);
   __DMB();
 }
 
@@ -183,23 +176,6 @@ static CanPort_SendResult CanPort_GetSendState(FDCAN_HandleTypeDef *handle)
   return protocol_status.BusOff != 0U ? CAN_PORT_SEND_BUS_OFF : CAN_PORT_SEND_QUEUED;
 }
 
-static CanPort_ReceiveResult CanPort_GetReceiveState(FDCAN_HandleTypeDef *handle)
-{
-  FDCAN_ProtocolStatusTypeDef protocol_status = {0};
-
-  if (HAL_FDCAN_GetState(handle) != HAL_FDCAN_STATE_BUSY)
-  {
-    return CAN_PORT_RECEIVE_NOT_READY;
-  }
-
-  if (HAL_FDCAN_GetProtocolStatus(handle, &protocol_status) != HAL_OK)
-  {
-    return CAN_PORT_RECEIVE_ERROR;
-  }
-
-  return protocol_status.BusOff != 0U ? CAN_PORT_RECEIVE_BUS_OFF : CAN_PORT_RECEIVE_RECEIVED;
-}
-
 static bool CanPort_IsIdentifierValid(uint32_t identifier, CanPort_IdentifierType identifier_type)
 {
   if (identifier_type == CAN_PORT_IDENTIFIER_STANDARD)
@@ -230,25 +206,10 @@ static void CanPort_DrainReceiveFifo(CanPort_Channel channel, FDCAN_HandleTypeDe
        drained < CAN_PORT_ISR_DRAIN_LIMIT && HAL_FDCAN_GetRxFifoFillLevel(handle, FDCAN_RX_FIFO0) != 0U;
        ++drained)
   {
+    CanPort_Frame frame = {0};
     FDCAN_RxHeaderTypeDef header = {0};
-    const uint32_t head = state->head;
-    const uint32_t tail = state->tail;
 
-    if ((uint32_t)(head - tail) >= CAN_PORT_RX_QUEUE_CAPACITY)
-    {
-      uint8_t discarded_data[CAN_PORT_MAX_DATA_LENGTH];
-      if (HAL_FDCAN_GetRxMessage(handle, FDCAN_RX_FIFO0, &header, discarded_data) != HAL_OK)
-      {
-        ++state->rx_dropped_count;
-        break;
-      }
-
-      ++state->rx_dropped_count;
-      continue;
-    }
-
-    CanPort_Frame *const frame = &state->frames[head & CAN_PORT_RX_QUEUE_MASK];
-    if (HAL_FDCAN_GetRxMessage(handle, FDCAN_RX_FIFO0, &header, frame->data) != HAL_OK)
+    if (HAL_FDCAN_GetRxMessage(handle, FDCAN_RX_FIFO0, &header, frame.data) != HAL_OK)
     {
       ++state->rx_dropped_count;
       break;
@@ -260,13 +221,18 @@ static void CanPort_DrainReceiveFifo(CanPort_Channel channel, FDCAN_HandleTypeDe
       continue;
     }
 
-    frame->identifier = header.Identifier;
-    frame->identifier_type =
+    frame.identifier = header.Identifier;
+    frame.identifier_type =
         header.IdType == FDCAN_STANDARD_ID ? CAN_PORT_IDENTIFIER_STANDARD : CAN_PORT_IDENTIFIER_EXTENDED;
-    frame->length = (uint8_t)header.DataLength;
+    frame.length = (uint8_t)header.DataLength;
 
-    __DMB();
-    state->head = head + 1U;
+    if (PortKit_Queue_Free(&state->receive_queue) < sizeof(frame))
+    {
+      ++state->rx_dropped_count;
+      continue;
+    }
+
+    (void)PortKit_Queue_Push(&state->receive_queue, (const uint8_t *)&frame, sizeof(frame));
   }
 }
 
@@ -305,14 +271,12 @@ bool CanPort_Init(void)
 
 bool CanPort_IsReady(CanPort_Channel channel)
 {
-  FDCAN_HandleTypeDef *handle;
-
-  if (!CanPort_GetHandle(channel, &handle))
+  if (channel >= CAN_PORT_CHANNEL_COUNT)
   {
     return false;
   }
 
-  return CanPort_GetSendState(handle) == CAN_PORT_SEND_QUEUED;
+  return CanPort_GetSendState(can_port_handles[channel]) == CAN_PORT_SEND_QUEUED;
 }
 
 bool CanPort_ConfigureStandardReceiveFilter(CanPort_Channel channel,
@@ -326,17 +290,17 @@ bool CanPort_ConfigureStandardReceiveFilter(CanPort_Channel channel,
   uint32_t interrupt_mask;
   bool configured = false;
 
-  if (!CanPort_GetHandle(channel, &handle) || first_identifier > last_identifier || last_identifier > 0x7FFU)
+  if (channel >= CAN_PORT_CHANNEL_COUNT || first_identifier > last_identifier || last_identifier > 0x7FFU)
   {
     return false;
   }
 
+  handle = can_port_handles[channel];
   candidate.enabled = enabled;
   candidate.first_identifier = first_identifier;
   candidate.last_identifier = last_identifier;
 
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
+  interrupt_mask = PortKit_Critical_Enter();
   handle_state = HAL_FDCAN_GetState(handle);
   if (handle_state == HAL_FDCAN_STATE_READY || handle_state == HAL_FDCAN_STATE_BUSY)
   {
@@ -347,30 +311,18 @@ bool CanPort_ConfigureStandardReceiveFilter(CanPort_Channel channel,
       __DMB();
     }
   }
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Critical_Exit(interrupt_mask);
   return configured;
 }
 
 bool CanPort_SetReceiveNotification(CanPort_Channel channel, CanPort_ReceiveNotification notification, void *context)
 {
-  uint32_t interrupt_mask;
-  CanPort_ChannelState *state;
-
   if (channel >= CAN_PORT_CHANNEL_COUNT)
   {
     return false;
   }
 
-  state = &can_port_states[channel];
-  interrupt_mask = __get_PRIMASK();
-  __disable_irq();
-  state->receive_notification = NULL;
-  __DMB();
-  state->receive_notification_context = context;
-  __DMB();
-  state->receive_notification = notification;
-  __DMB();
-  __set_PRIMASK(interrupt_mask);
+  PortKit_Notifier_Set(&can_port_states[channel].receive_notifier, notification, context);
   return true;
 }
 
@@ -384,12 +336,13 @@ CanPort_SendResult CanPort_TrySend(CanPort_Channel channel,
   FDCAN_TxHeaderTypeDef header = {0};
   CanPort_SendResult state;
 
-  if (!CanPort_GetHandle(channel, &handle) || data == NULL || length > CAN_PORT_MAX_DATA_LENGTH ||
+  if (channel >= CAN_PORT_CHANNEL_COUNT || data == NULL || length > CAN_PORT_MAX_DATA_LENGTH ||
       !CanPort_IsIdentifierValid(identifier, identifier_type))
   {
     return CAN_PORT_SEND_INVALID_ARGUMENT;
   }
 
+  handle = can_port_handles[channel];
   state = CanPort_GetSendState(handle);
   if (state != CAN_PORT_SEND_QUEUED)
   {
@@ -433,37 +386,41 @@ CanPort_ReceiveResult CanPort_TryReceive(CanPort_Channel channel,
 {
   FDCAN_HandleTypeDef *handle;
   CanPort_ChannelState *state;
-  uint32_t head;
-  uint32_t tail;
+  CanPort_Frame frame;
 
-  if (!CanPort_GetHandle(channel, &handle) || identifier == NULL || identifier_type == NULL || length == NULL ||
+  if (channel >= CAN_PORT_CHANNEL_COUNT || identifier == NULL || identifier_type == NULL || length == NULL ||
       data == NULL || data_capacity < CAN_PORT_MAX_DATA_LENGTH)
   {
     return CAN_PORT_RECEIVE_INVALID_ARGUMENT;
   }
 
+  handle = can_port_handles[channel];
   state = &can_port_states[channel];
-  head = state->head;
-  tail = state->tail;
 
-  if (head == tail)
+  if (PortKit_Queue_Pop(&state->receive_queue, (uint8_t *)&frame, sizeof(frame)) != sizeof(frame))
   {
-    const CanPort_ReceiveResult receive_state = CanPort_GetReceiveState(handle);
-    return receive_state == CAN_PORT_RECEIVE_RECEIVED ? CAN_PORT_RECEIVE_EMPTY : receive_state;
+    FDCAN_ProtocolStatusTypeDef protocol_status = {0};
+    if (HAL_FDCAN_GetState(handle) != HAL_FDCAN_STATE_BUSY)
+    {
+      return CAN_PORT_RECEIVE_NOT_READY;
+    }
+
+    if (HAL_FDCAN_GetProtocolStatus(handle, &protocol_status) != HAL_OK)
+    {
+      return CAN_PORT_RECEIVE_ERROR;
+    }
+
+    return protocol_status.BusOff != 0U ? CAN_PORT_RECEIVE_BUS_OFF : CAN_PORT_RECEIVE_EMPTY;
   }
 
-  __DMB();
-  const CanPort_Frame *const frame = &state->frames[tail & CAN_PORT_RX_QUEUE_MASK];
-  *identifier = frame->identifier;
-  *identifier_type = frame->identifier_type;
-  *length = frame->length;
-  for (uint8_t index = 0U; index < frame->length; ++index)
+  *identifier = frame.identifier;
+  *identifier_type = frame.identifier_type;
+  *length = frame.length;
+  for (uint8_t index = 0U; index < frame.length; ++index)
   {
-    data[index] = frame->data[index];
+    data[index] = frame.data[index];
   }
 
-  __DMB();
-  state->tail = tail + 1U;
   return CAN_PORT_RECEIVE_RECEIVED;
 }
 
@@ -475,19 +432,17 @@ bool CanPort_GetStatistics(CanPort_Channel channel, CanPort_Statistics *statisti
   }
 
   const CanPort_ChannelState *const state = &can_port_states[channel];
-  __DMB();
+  const uint32_t interrupt_mask = PortKit_Critical_Enter();
   statistics->rx_dropped_count = state->rx_dropped_count;
   statistics->rx_hardware_loss_event_count = state->rx_hardware_loss_event_count;
   statistics->bus_off_count = state->bus_off_count;
-  __DMB();
+  PortKit_Critical_Exit(interrupt_mask);
   return true;
 }
 
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *handle, uint32_t fifo_interrupts)
 {
   CanPort_Channel channel;
-  CanPort_ReceiveNotification notification;
-  void *notification_context;
 
   if (!CanPort_GetChannel(handle, &channel))
   {
@@ -501,13 +456,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *handle, uint32_t fifo_interr
 
   CanPort_DrainReceiveFifo(channel, handle);
 
-  notification = can_port_states[channel].receive_notification;
-  notification_context = can_port_states[channel].receive_notification_context;
-  __DMB();
-  if (notification != NULL)
-  {
-    notification(notification_context);
-  }
+  (void)PortKit_Notifier_Fire(&can_port_states[channel].receive_notifier);
 }
 
 void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *handle, uint32_t error_status_interrupts)
