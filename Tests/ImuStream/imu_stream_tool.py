@@ -202,6 +202,16 @@ def decode(args: argparse.Namespace) -> int:
             "flags",
         ])
 
+    frames_handle = None
+    frames_writer = None
+    if getattr(args, "frames_csv", None):
+        frames_handle = Path(args.frames_csv).open("w", newline="", encoding="utf-8")
+        frames_writer = csv.writer(frames_handle)
+        frames_writer.writerow([
+            "frame_sequence", "temperature_tick", "temperature_celsius",
+            "temperature_valid", "dropped", "sample_count",
+        ])
+
     offset = 0
     while offset < len(buffer):
         try:
@@ -245,6 +255,14 @@ def decode(args: argparse.Namespace) -> int:
             dropped_first = header["dropped"]
         dropped_last = header["dropped"]
 
+        if frames_writer is not None:
+            frames_writer.writerow([
+                header["frame_sequence"], header["temperature_tick"],
+                header["temperature_celsius"],
+                1 if header["temperature_valid"] else 0,
+                header["dropped"], header["sample_count"],
+            ])
+
         for record in frame["records"]:
             name = SENSOR_NAMES.get(record["sensor"])
             if name is None:
@@ -281,6 +299,8 @@ def decode(args: argparse.Namespace) -> int:
 
     if csv_handle is not None:
         csv_handle.close()
+    if frames_handle is not None:
+        frames_handle.close()
 
     print(f"文件：{args.bin}（{len(buffer)} 字节）")
     print(f"有效帧：{frame_count}，样本行：{row_count}")
@@ -371,6 +391,8 @@ def main() -> int:
     decode_parser = subparsers.add_parser("decode", help="解码并验收原始字节流")
     decode_parser.add_argument("--bin", required=True)
     decode_parser.add_argument("--csv", default=None)
+    decode_parser.add_argument("--frames-csv", default=None,
+                               help="帧级 CSV：frame_sequence、tick、温度、丢弃、样本数")
     decode_parser.set_defaults(func=decode)
 
     args = parser.parse_args()
