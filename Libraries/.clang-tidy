@@ -60,6 +60,6 @@ CheckOptions:
   # ---- 宏：仅宏允许全大写蛇形 ----
   - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
-  # ---- 命名空间：小写蛇形 ----
+  # ---- ：小写蛇形 ----
   - key: readability-identifier-naming.NamespaceCase
     value: lower_case

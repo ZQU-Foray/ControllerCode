@@ -103,6 +103,6 @@ template <uint8_t StatusMax> inline bool Fsm<StatusMax>::SetStatus(uint8_t nextS
     return true;
 }
 
-} // namespace alg_fsm
+} //  alg_fsm
 
 #endif

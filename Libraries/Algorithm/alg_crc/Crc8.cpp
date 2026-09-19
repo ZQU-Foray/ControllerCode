@@ -25,7 +25,7 @@ constexpr auto table = []
     return table;
 }();
 
-} // namespace
+} // 
 
 uint8_t Crc8Calc(const uint8_t *data, size_t len)
 {
@@ -42,4 +42,4 @@ uint8_t Crc8Calc(const uint8_t *data, size_t len)
     return crc; // xorout = 0x00，无需再异或
 }
 
-} // namespace alg_crc
+} //  alg_crc

@@ -14,7 +14,7 @@ bool IsValidCutoff(float cutoffFreq, float dt)
 {
     return std::isfinite(cutoffFreq) && std::isfinite(dt) && cutoffFreq > 0.0f && dt > 0.0f && cutoffFreq * dt < 0.5f;
 }
-} // namespace
+} // 
 
 bool ButterworthFilter::Init(const Config &config)
 {
@@ -342,4 +342,4 @@ void AverageFilter::Reset()
     Count = 0;
 }
 
-} // namespace alg_filter
+} //  alg_filter

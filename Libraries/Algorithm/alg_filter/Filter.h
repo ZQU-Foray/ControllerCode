@@ -147,6 +147,6 @@ class AverageFilter
     uint32_t Count = 0; // 样本数
 };
 
-} // namespace alg_filter
+} //  alg_filter
 
 #endif

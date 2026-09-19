@@ -24,7 +24,7 @@ bool IsValidConfig(const alg_controller::PID::Config &config)
            config.DLpfRc >= 0.0f && config.OutLpfRc >= 0.0f;
 }
 
-} // namespace
+} // 
 
 namespace alg_controller
 {
@@ -392,4 +392,4 @@ void PID::OutputFilter()
     Output = alpha * Output + (1.0f - alpha) * LastOutput;
 }
 
-} // namespace alg_controller
+} //  alg_controller

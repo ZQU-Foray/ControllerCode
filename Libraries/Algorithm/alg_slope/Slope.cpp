@@ -26,7 +26,7 @@ bool IsBetween(float value, float first, float second)
     return (first <= value && value <= second) || (second <= value && value <= first);
 }
 
-} // namespace
+} // 
 
 namespace alg_slope
 {
@@ -166,4 +166,4 @@ bool Slope::IsInitialized() const
     return Initialized;
 }
 
-} // namespace alg_slope
+} //  alg_slope

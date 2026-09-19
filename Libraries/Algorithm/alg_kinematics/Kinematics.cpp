@@ -68,7 +68,7 @@ void BodyToWorld(float bodyX, float bodyY, float yaw, float &worldX, float &worl
     worldY = bodyX * sinYaw + bodyY * cosYaw;
 }
 
-} // namespace
+} // 
 
 namespace alg_kinematics
 {
@@ -280,7 +280,7 @@ bool Kinematics::IsInitialized() const
     return Initialized;
 }
 
-} // namespace alg_kinematics
+} //  alg_kinematics
 
 namespace alg_odometry
 {
@@ -382,4 +382,4 @@ const OdometryState &Odometry::GetState() const
     return State;
 }
 
-} // namespace alg_odometry
+} //  alg_odometry
