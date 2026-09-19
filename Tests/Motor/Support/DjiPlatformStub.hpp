@@ -101,4 +101,3 @@ std::uint32_t TimePort_FrequencyHz(void) { return 1000U; }
 void TimePort_DelayUs(std::uint32_t) {}
 
 } // extern "C"
-
