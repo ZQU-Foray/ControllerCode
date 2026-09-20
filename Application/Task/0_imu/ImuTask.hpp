@@ -4,10 +4,11 @@
 namespace application::task {
 
 /**
- * @brief BMI088 原始数据采集与诊断输出任务。
+ * @brief BMI088 原始数据采集与姿态解算任务。
  * @note 本任务独占 BMI088 与恒温器；两路 DRDY 通过 ISR 线程标志唤醒任务。
- *       任务只负责把采集到的原始样本交给 ImuDiagnostics 记录/发布，
- *       不再包含姿态解算、零偏标定或任何原始数据融合逻辑。
+ *       任务收割原始样本后旁路交给 AttitudeEstimator（单位/坐标映射 + 四元数
+ *       EKF）与 ImuDiagnostics（Debug 只读诊断）；本任务不做滤波、标定或
+ *       任何形式的数据平滑。
  */
 class ImuTask final {
 public:
@@ -25,6 +26,6 @@ public:
   [[noreturn]] static void Run(void *argument) noexcept;
 };
 
-} //  application::task
+} // namespace application::task
 
 #endif

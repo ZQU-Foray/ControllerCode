@@ -16,20 +16,20 @@ void WriteBigEndian16(std::uint8_t *bytes, std::int16_t value) noexcept {
   bytes[1] = static_cast<std::uint8_t>(raw & 0xFFU);
 }
 
-} // 
+} // namespace
 
 DjiEsc::DjiEsc(const Dialect &dialect) noexcept : dialect_{dialect} {}
 
 void DjiEsc::Reset() noexcept { statistics_ = {}; }
 
-bool DjiEsc::Encode(CommandKind kind, Group group,
-                    const std::array<std::int16_t, DevicesPerFrame>
-                        &controlCounts,
-                    ControlFrame &frame) noexcept {
+bool DjiEsc::Encode(
+    CommandKind kind, Group group,
+    const std::array<std::int16_t, DevicesPerFrame> &controlCounts,
+    ControlFrame &frame) noexcept {
   const CommandSpec &spec = GetCommandSpec(kind);
-  const std::uint32_t identifier =
-      group == Group::First ? spec.groupOneControlIdentifier
-                            : spec.groupTwoControlIdentifier;
+  const std::uint32_t identifier = group == Group::First
+                                       ? spec.groupOneControlIdentifier
+                                       : spec.groupTwoControlIdentifier;
   if (identifier == 0U) {
     ++statistics_.unsupportedCommandCount;
     return false;
@@ -83,8 +83,7 @@ DjiEsc::DecodeResult DjiEsc::DecodeFeedback(std::uint32_t identifier,
   decoded.deviceId =
       static_cast<std::uint8_t>(identifier - dialect_.feedbackIdentifierBase);
   decoded.rotorAngleRaw = ReadBigEndian16(&data[0]);
-  decoded.rotorSpeedRaw =
-      static_cast<std::int16_t>(ReadBigEndian16(&data[2]));
+  decoded.rotorSpeedRaw = static_cast<std::int16_t>(ReadBigEndian16(&data[2]));
   decoded.torqueCurrentRaw =
       static_cast<std::int16_t>(ReadBigEndian16(&data[4]));
   decoded.motorTemperatureCelsius = data[6];
@@ -112,4 +111,4 @@ std::int16_t DjiEsc::Saturate(std::int32_t controlCounts,
   return static_cast<std::int16_t>(controlCounts);
 }
 
-} //  protocol
+} // namespace protocol

@@ -99,6 +99,6 @@ inline float InvSqrt(float x)
     return y;
 }
 
-} //  alg_math
+} // namespace alg_math
 
 #endif

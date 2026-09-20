@@ -124,7 +124,6 @@ private:
   Bmi088Temperature temperature_{};
   bool accelerometerDataReadyPending_{false};
   bool gyroscopeDataReadyPending_{false};
-  bool preferAccelerometer_{true};
   std::uint32_t turn_{0U};
   std::uint32_t accelerometerDataReadyCount_{0U};
   std::uint32_t gyroscopeDataReadyCount_{0U};
@@ -133,6 +132,6 @@ private:
   platform::Time::Tick lastTemperatureStartTick_{0U};
 };
 
-} //  device
+} // namespace device
 
 #endif

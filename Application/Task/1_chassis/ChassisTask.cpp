@@ -1,7 +1,7 @@
 #include "Application/Task/1_chassis/ChassisTask.hpp"
 #include "Application/Task/1_chassis/ChassisController.hpp"
-#include "Libraries/Device/motor/dji/DjiMotorModelMap.hpp"
 #include "Libraries/Device/motor/MotorGroup.hpp"
+#include "Libraries/Device/motor/dji/DjiMotorModelMap.hpp"
 #include "Platform/Interface/Time.hpp"
 #include "cmsis_os2.h"
 

@@ -25,7 +25,7 @@ constexpr std::uint32_t PowerCtrlSettleMs{50U};
 constexpr std::uint32_t ConfigSettleMs{1U};
 constexpr std::uint32_t ConfVerifySettleMs{5U};
 
-} // 
+} // namespace
 
 void Bmi088Accel::Init() noexcept {
   state_ = State::Initializing;
@@ -295,4 +295,4 @@ void Bmi088Accel::Fail() noexcept {
   transferActive_ = false;
 }
 
-} //  device
+} // namespace device

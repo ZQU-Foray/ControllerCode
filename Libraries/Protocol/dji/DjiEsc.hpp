@@ -41,10 +41,10 @@ public:
     std::uint8_t maximumDeviceCount;
   };
 
-  [[nodiscard]] static constexpr Dialect MakeDialect(
-      const CommandSpec &current, const CommandSpec &voltage,
-      std::uint32_t feedbackIdentifierBase,
-      std::uint8_t maximumDeviceCount) noexcept {
+  [[nodiscard]] static constexpr Dialect
+  MakeDialect(const CommandSpec &current, const CommandSpec &voltage,
+              std::uint32_t feedbackIdentifierBase,
+              std::uint8_t maximumDeviceCount) noexcept {
     return {{{current, voltage}}, feedbackIdentifierBase, maximumDeviceCount};
   }
 
@@ -117,10 +117,10 @@ public:
    * @return 种类可用、该组在当前 Dialect 下存在设备且控制值全部合法时
    *         返回 true。
    */
-  [[nodiscard]] bool Encode(CommandKind kind, Group group,
-                            const std::array<std::int16_t, DevicesPerFrame>
-                                &controlCounts,
-                            ControlFrame &frame) noexcept;
+  [[nodiscard]] bool
+  Encode(CommandKind kind, Group group,
+         const std::array<std::int16_t, DevicesPerFrame> &controlCounts,
+         ControlFrame &frame) noexcept;
 
   /**
    * @brief 解析一条反馈帧，仅返回 Accepted 时写入 feedback。
@@ -147,8 +147,8 @@ public:
    * @brief 将控制值换算为 [-1, 1] 的有符号比例，供设备层乘具体电气量程。
    * @note 种类不可用或满量程为 0 时返回 0。
    */
-  [[nodiscard]] static constexpr float ControlRatio(
-      std::int16_t controlCounts, const CommandSpec &spec) noexcept {
+  [[nodiscard]] static constexpr float
+  ControlRatio(std::int16_t controlCounts, const CommandSpec &spec) noexcept {
     if (spec.controlFullScaleCounts == 0U) {
       return 0.0F;
     }
@@ -159,8 +159,8 @@ public:
   /**
    * @brief 返回当前 Dialect 中指定命令种类的规格描述。
    */
-  [[nodiscard]] constexpr const CommandSpec &GetCommandSpec(
-      CommandKind kind) const noexcept {
+  [[nodiscard]] constexpr const CommandSpec &
+  GetCommandSpec(CommandKind kind) const noexcept {
     return dialect_.commands[static_cast<std::size_t>(kind)];
   }
 
@@ -177,8 +177,8 @@ public:
   /**
    * @brief 将转子机械角原始计数换算为机械角度数。
    */
-  [[nodiscard]] static constexpr float RotorAngleDegrees(
-      std::uint16_t rotorAngleRaw) noexcept {
+  [[nodiscard]] static constexpr float
+  RotorAngleDegrees(std::uint16_t rotorAngleRaw) noexcept {
     return static_cast<float>(rotorAngleRaw) * 360.0F /
            static_cast<float>(AngleCountsPerRevolution);
   }
@@ -187,15 +187,13 @@ public:
     return statistics_;
   }
 
-  [[nodiscard]] const Dialect &GetDialect() const noexcept {
-    return dialect_;
-  }
+  [[nodiscard]] const Dialect &GetDialect() const noexcept { return dialect_; }
 
 private:
   Dialect dialect_;
   Statistics statistics_{};
 };
 
-} //  protocol
+} // namespace protocol
 
 #endif

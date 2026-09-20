@@ -98,9 +98,8 @@ void ChassisController::Update(
 
     if (mode == WheelControlMode::Torque) {
       reset();
-      outTorqueNewtonMeter[wheel] =
-          alg_math::Limit(target, -config_.maxTorqueNewtonMeter,
-                          config_.maxTorqueNewtonMeter);
+      outTorqueNewtonMeter[wheel] = alg_math::Limit(
+          target, -config_.maxTorqueNewtonMeter, config_.maxTorqueNewtonMeter);
       continue;
     }
 
@@ -114,20 +113,19 @@ void ChassisController::Update(
         reset();
         continue;
       }
-      targetRpm = alg_math::Limit(anglePids_[wheel].GetOut(),
-                                  -config_.maxWheelSpeedRpm,
-                                  config_.maxWheelSpeedRpm);
+      targetRpm =
+          alg_math::Limit(anglePids_[wheel].GetOut(), -config_.maxWheelSpeedRpm,
+                          config_.maxWheelSpeedRpm);
     }
 
     if (!speedPids_[wheel].CalculateLoop(state.speedRpm, targetRpm, dt)) {
       reset();
       continue;
     }
-    outTorqueNewtonMeter[wheel] =
-        alg_math::Limit(speedPids_[wheel].GetOut(),
-                        -config_.maxTorqueNewtonMeter,
-                        config_.maxTorqueNewtonMeter);
+    outTorqueNewtonMeter[wheel] = alg_math::Limit(speedPids_[wheel].GetOut(),
+                                                  -config_.maxTorqueNewtonMeter,
+                                                  config_.maxTorqueNewtonMeter);
   }
 }
 
-} //  application::chassis
+} // namespace application::chassis

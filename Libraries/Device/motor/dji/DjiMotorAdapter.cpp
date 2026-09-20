@@ -10,8 +10,8 @@ bool DjiMotorAdapter::Init() noexcept {
     return true;
   }
   const auto &profile = config_.profile;
-  const auto &current = profile.dialect.commands[
-      static_cast<std::size_t>(protocol::DjiEsc::CommandKind::Current)];
+  const auto &current = profile.dialect.commands[static_cast<std::size_t>(
+      protocol::DjiEsc::CommandKind::Current)];
   if (static_cast<unsigned>(config_.channel) >
           static_cast<unsigned>(platform::Can::Channel::Channel3) ||
       config_.count == 0U || config_.count > config_.mappings.size() ||
@@ -60,7 +60,8 @@ void DjiMotorAdapter::Process() noexcept {
   }
 }
 
-bool DjiMotorAdapter::ReadState(std::size_t id, MotorState &state) const noexcept {
+bool DjiMotorAdapter::ReadState(std::size_t id,
+                                MotorState &state) const noexcept {
   state = {};
   if (!ready_ || id >= config_.count) {
     return false;
@@ -70,7 +71,8 @@ bool DjiMotorAdapter::ReadState(std::size_t id, MotorState &state) const noexcep
   if (!bus_.GetSnapshot(mapping.deviceId, snapshot)) {
     return false;
   }
-  const float factor = static_cast<float>(mapping.direction) / mapping.gearRatio;
+  const float factor =
+      static_cast<float>(mapping.direction) / mapping.gearRatio;
   state.angleDegrees = snapshot.totalAngleDegrees * factor;
   state.speedRpm = static_cast<float>(snapshot.rotorSpeedRpm) * factor;
   state.feedbackValid = snapshot.everReceived;
@@ -96,4 +98,4 @@ bool DjiMotorAdapter::SetTorque(std::size_t id, float value) noexcept {
 }
 
 void DjiMotorAdapter::ClearCommands() noexcept { bus_.ClearAllCommands(); }
-} //  device
+} // namespace device

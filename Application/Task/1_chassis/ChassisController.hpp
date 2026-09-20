@@ -76,8 +76,7 @@ public:
    * @param dt 本周期时长（秒）。
    * @param outTorqueNewtonMeter 输出力矩指令，恒为有限值。
    */
-  void Update(const device::MotorState (&snapshots)[MotorCount],
-              float dt,
+  void Update(const device::MotorState (&snapshots)[MotorCount], float dt,
               float (&outTorqueNewtonMeter)[MotorCount]) noexcept;
 
 private:
@@ -95,6 +94,6 @@ private:
                 "ChassisController mode requires lock-free enum atomics");
 };
 
-} //  application::chassis
+} // namespace application::chassis
 
 #endif

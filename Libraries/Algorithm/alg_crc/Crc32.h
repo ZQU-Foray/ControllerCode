@@ -15,6 +15,6 @@ namespace alg_crc
  */
 uint32_t Crc32Calc(const uint8_t *data, size_t len);
 
-} //  alg_crc
+} // namespace alg_crc
 
 #endif

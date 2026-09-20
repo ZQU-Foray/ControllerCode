@@ -94,7 +94,7 @@ class Kinematics
     bool Initialized = false;
 };
 
-} //  alg_kinematics
+} // namespace alg_kinematics
 
 namespace alg_odometry
 {
@@ -131,6 +131,6 @@ class Odometry
     OdometryState State{};
 };
 
-} //  alg_odometry
+} // namespace alg_odometry
 
 #endif

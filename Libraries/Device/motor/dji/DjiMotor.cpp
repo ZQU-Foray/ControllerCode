@@ -6,18 +6,17 @@ namespace {
 
 constexpr std::size_t SendResultCount{6U};
 
-} // 
+} // namespace
 
 DjiMotor::DjiMotor(platform::Can::Channel channel,
-                         const Profile &profile) noexcept
+                   const Profile &profile) noexcept
     : channel_{channel}, esc_{profile.dialect}, profile_{profile},
-      commandKind_{
-          profile.dialect
-                      .commands[static_cast<std::size_t>(
-                          protocol::DjiEsc::CommandKind::Current)]
-                      .groupOneControlIdentifier != 0U
-              ? protocol::DjiEsc::CommandKind::Current
-              : protocol::DjiEsc::CommandKind::Voltage} {}
+      commandKind_{profile.dialect
+                               .commands[static_cast<std::size_t>(
+                                   protocol::DjiEsc::CommandKind::Current)]
+                               .groupOneControlIdentifier != 0U
+                       ? protocol::DjiEsc::CommandKind::Current
+                       : protocol::DjiEsc::CommandKind::Voltage} {}
 
 bool DjiMotor::Init() noexcept {
   motors_ = {};
@@ -76,7 +75,7 @@ bool DjiMotor::EnableMotor(std::uint8_t deviceId) noexcept {
 }
 
 bool DjiMotor::SetRawCommand(std::uint8_t deviceId,
-                                std::int16_t rawCommand) noexcept {
+                             std::int16_t rawCommand) noexcept {
   if (!DeviceIdValid(deviceId)) {
     return false;
   }
@@ -84,8 +83,7 @@ bool DjiMotor::SetRawCommand(std::uint8_t deviceId,
   return true;
 }
 
-bool DjiMotor::SetCurrentAmpere(std::uint8_t deviceId,
-                                   float ampere) noexcept {
+bool DjiMotor::SetCurrentAmpere(std::uint8_t deviceId, float ampere) noexcept {
   if (!DeviceIdValid(deviceId) || profile_.currentFullScaleAmpere <= 0.0F) {
     return false;
   }
@@ -98,8 +96,8 @@ bool DjiMotor::SetCurrentAmpere(std::uint8_t deviceId,
   }
   const std::int16_t fullScaleCounts = static_cast<std::int16_t>(
       esc_.GetCommandSpec(commandKind_).controlFullScaleCounts);
-  return SetRawCommand(
-      deviceId, static_cast<std::int16_t>(ratio * fullScaleCounts));
+  return SetRawCommand(deviceId,
+                       static_cast<std::int16_t>(ratio * fullScaleCounts));
 }
 
 bool DjiMotor::SetTorque(std::uint8_t deviceId, float newtonMeter) noexcept {
@@ -121,8 +119,8 @@ bool DjiMotor::SetTorqueRatio(std::uint8_t deviceId, float ratio) noexcept {
   }
   const std::int16_t fullScaleCounts = static_cast<std::int16_t>(
       esc_.GetCommandSpec(commandKind_).controlFullScaleCounts);
-  return SetRawCommand(
-      deviceId, static_cast<std::int16_t>(ratio * fullScaleCounts));
+  return SetRawCommand(deviceId,
+                       static_cast<std::int16_t>(ratio * fullScaleCounts));
 }
 
 void DjiMotor::ClearAllCommands() noexcept {
@@ -132,7 +130,7 @@ void DjiMotor::ClearAllCommands() noexcept {
 }
 
 bool DjiMotor::GetSnapshot(std::uint8_t deviceId,
-                              Snapshot &snapshot) const noexcept {
+                           Snapshot &snapshot) const noexcept {
   if (deviceId == 0U || deviceId > MaximumMotors) {
     return false;
   }
@@ -179,10 +177,10 @@ void DjiMotor::ReceiveFrames() noexcept {
       return;
     }
 
-    if (esc_.DecodeFeedback(
-            frame.identifier,
-            frame.identifierType == platform::Can::IdentifierType::Extended,
-            frame.length, frame.data.data(), feedback_) !=
+    if (esc_.DecodeFeedback(frame.identifier,
+                            frame.identifierType ==
+                                platform::Can::IdentifierType::Extended,
+                            frame.length, frame.data.data(), feedback_) !=
         protocol::DjiEsc::DecodeResult::Accepted) {
       continue;
     }
@@ -196,7 +194,8 @@ void DjiMotor::ReceiveFrames() noexcept {
     if (motor.hasAngle) {
       std::int32_t delta = static_cast<std::int32_t>(feedback_.rotorAngleRaw) -
                            static_cast<std::int32_t>(motor.lastAngleRaw);
-      constexpr std::int32_t counts = protocol::DjiEsc::AngleCountsPerRevolution;
+      constexpr std::int32_t counts =
+          protocol::DjiEsc::AngleCountsPerRevolution;
       // 恰好半圈时保留符号；该速率下方向本身有歧义。
       if (delta > counts / 2) {
         delta -= counts;
@@ -288,7 +287,7 @@ void DjiMotor::Publish() noexcept {
 }
 
 void DjiMotor::FillSnapshot(std::size_t index,
-                               Snapshot &snapshot) const noexcept {
+                            Snapshot &snapshot) const noexcept {
   const MotorState &motor = motors_[index];
 
   snapshot = Snapshot{};
@@ -302,9 +301,9 @@ void DjiMotor::FillSnapshot(std::size_t index,
   snapshot.rotorAngleDegrees =
       protocol::DjiEsc::RotorAngleDegrees(motor.feedback.rotorAngleRaw);
   snapshot.totalAngleCounts = motor.totalAngleCounts;
-  snapshot.totalTurns = motor.totalAngleCounts /
-                        static_cast<std::int32_t>(
-                            protocol::DjiEsc::AngleCountsPerRevolution);
+  snapshot.totalTurns =
+      motor.totalAngleCounts /
+      static_cast<std::int32_t>(protocol::DjiEsc::AngleCountsPerRevolution);
   snapshot.totalAngleDegrees =
       static_cast<float>(motor.totalAngleCounts) * 360.0F /
       static_cast<float>(protocol::DjiEsc::AngleCountsPerRevolution);
@@ -336,4 +335,4 @@ bool DjiMotor::GroupEnabled(protocol::DjiEsc::Group group) const noexcept {
   return false;
 }
 
-} //  device
+} // namespace device

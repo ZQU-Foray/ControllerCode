@@ -74,7 +74,10 @@ public:
   }
 
 private:
-  static constexpr std::uint16_t PreheatDutyPermille{100U};
+  // 预热占空比必须是满量程：实测原值 100‰（10%）的稳态只能到 42.4 ℃
+  // 并且仍在下降， 无法越过 45 ℃ 预热门槛，控制器会永久停在
+  // Preheating、永远进不了 50 ℃ 服务点。
+  static constexpr std::uint16_t PreheatDutyPermille{1000U};
 
   void DisableOutput(State nextState) noexcept;
   [[nodiscard]] bool SetDuty(std::uint16_t dutyPermille) noexcept;
@@ -93,6 +96,6 @@ private:
   platform::Pwm::Result lastPwmResult_{platform::Pwm::Result::NotReady};
 };
 
-} //  device
+} // namespace device
 
 #endif

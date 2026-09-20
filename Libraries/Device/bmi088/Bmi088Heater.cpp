@@ -9,8 +9,11 @@ namespace {
 constexpr float PidKp{10.0F};
 constexpr float PidKi{1.0F};
 constexpr float PidKd{0.0F};
-constexpr float PidMaximumOutput{30.0F};
-constexpr float PidIntegralLimit{50.0F};
+// 输出上限与积分上限按 PWM 千分比给出。实测原值 30‰（3%）不足以维持 50 ℃，
+// 因此放大到 30% 并保持原有增益不变：比例项偏弱、无微分项，响应慢但过阻尼，
+// 不会在 45 ℃ 预热门槛附近产生极限环。65 ℃ 硬保护与 500 ms 样本超时保持不变。
+constexpr float PidMaximumOutput{300.0F};
+constexpr float PidIntegralLimit{300.0F};
 constexpr float DefaultControlPeriodSeconds{0.128F};
 constexpr float PreheatThresholdFor(float targetCelsius) {
   return targetCelsius - 2.0F < Bmi088Heater::PreheatThresholdCelsius
@@ -21,7 +24,7 @@ static_assert(PreheatThresholdFor(Bmi088Heater::DefaultTargetCelsius) ==
               Bmi088Heater::PreheatThresholdCelsius);
 static_assert(PreheatThresholdFor(32.0F) == 30.0F);
 
-} // 
+} // namespace
 
 bool Bmi088Heater::Init() noexcept {
   alg_controller::PID::Config config{};
@@ -173,4 +176,4 @@ bool Bmi088Heater::SetDuty(std::uint16_t dutyPermille) noexcept {
   return true;
 }
 
-} //  device
+} // namespace device

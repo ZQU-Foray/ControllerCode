@@ -25,6 +25,6 @@ public:
   [[nodiscard]] static State GetState() noexcept;
 };
 
-} //  application::task
+} // namespace application::task
 
 #endif

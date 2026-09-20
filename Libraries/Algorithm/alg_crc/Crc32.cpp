@@ -10,8 +10,7 @@ constexpr uint32_t TableEntry(uint32_t value)
 {
     for (uint8_t bit = 0; bit < 8; bit++)
     {
-        value = (value & 1U) ? static_cast<uint32_t>((value >> 1) ^ 0xEDB88320U)
-                             : static_cast<uint32_t>(value >> 1);
+        value = (value & 1U) ? static_cast<uint32_t>((value >> 1) ^ 0xEDB88320U) : static_cast<uint32_t>(value >> 1);
     }
     return value;
 }
@@ -26,7 +25,7 @@ constexpr auto table = []
     return table;
 }();
 
-} //
+} // namespace
 
 uint32_t Crc32Calc(const uint8_t *data, size_t len)
 {
@@ -43,4 +42,4 @@ uint32_t Crc32Calc(const uint8_t *data, size_t len)
     return crc ^ 0xFFFFFFFFU; // xorout = 0xFFFFFFFF
 }
 
-} //  alg_crc
+} // namespace alg_crc

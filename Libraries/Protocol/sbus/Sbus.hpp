@@ -54,6 +54,6 @@ private:
   Statistics statistics_{};
 };
 
-} //  protocol
+} // namespace protocol
 
 #endif

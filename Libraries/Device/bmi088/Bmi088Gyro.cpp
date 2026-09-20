@@ -21,7 +21,7 @@ constexpr std::uint8_t MapDataReadyToInterrupt3{0x01U};
 constexpr std::uint32_t ConfigSettleMs{1U};
 constexpr std::uint32_t ConfigVerifySettleMs{1U};
 
-} // 
+} // namespace
 
 void Bmi088Gyro::Init() noexcept {
   state_ = State::Initializing;
@@ -284,4 +284,4 @@ void Bmi088Gyro::Fail() noexcept {
   transferActive_ = false;
 }
 
-} //  device
+} // namespace device

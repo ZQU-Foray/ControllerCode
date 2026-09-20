@@ -8,7 +8,7 @@ constexpr std::uint8_t ReadFlag{0x80U};
 
 constexpr std::uint8_t DataRegister{0x22U};
 
-} // 
+} // namespace
 
 void Bmi088Temperature::Init() noexcept {
   state_ = State::Disabled;
@@ -105,4 +105,4 @@ void Bmi088Temperature::Fail() noexcept {
   transferActive_ = false;
 }
 
-} //  device
+} // namespace device

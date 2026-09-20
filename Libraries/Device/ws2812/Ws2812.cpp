@@ -111,4 +111,4 @@ void Ws2812::HandleStartResult(platform::Spi::Result result) noexcept {
   }
 }
 
-} //  device
+} // namespace device

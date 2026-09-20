@@ -30,5 +30,5 @@ private:
   static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
   std::atomic<std::uint32_t> version_{0U}, sequence_{0U}, tick_{0U};
 };
-} //  application::task
+} // namespace application::task
 #endif

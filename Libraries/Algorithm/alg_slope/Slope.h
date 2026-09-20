@@ -56,6 +56,6 @@ class Slope
     bool Initialized = false;
 };
 
-} //  alg_slope
+} // namespace alg_slope
 
 #endif

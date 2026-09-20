@@ -219,6 +219,6 @@ private:
   Statistics publishedStatistics_{};
 };
 
-} //  device
+} // namespace device
 
 #endif

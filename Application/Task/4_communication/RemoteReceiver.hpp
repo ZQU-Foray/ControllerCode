@@ -48,6 +48,6 @@ public:
                                               std::size_t channel) noexcept;
 };
 
-} //  application
+} // namespace application
 
 #endif

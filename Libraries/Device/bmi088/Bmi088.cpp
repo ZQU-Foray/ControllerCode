@@ -7,7 +7,7 @@ namespace {
 bool Before(std::uint32_t a, std::uint32_t b) noexcept {
   return ((a - b) & 0x80000000U) != 0U;
 }
-} // 
+} // namespace
 
 bool Bmi088::PopNextSample(Bmi088SampleRecord &record,
                            bool &gyroscope) noexcept {
@@ -47,7 +47,6 @@ void Bmi088::Init() noexcept {
   accelerometerEvent_ = gyroscopeEvent_ = {};
   accelerometerInflight_ = gyroscopeInflight_ = {};
   accelerometerDataReadyPending_ = gyroscopeDataReadyPending_ = false;
-  preferAccelerometer_ = true;
   turn_ = 0U;
   accelerometerDataReadyCount_ = gyroscopeDataReadyCount_ = 0U;
   accelerometerCoalescedEventCount_ = gyroscopeCoalescedEventCount_ = 0U;
@@ -102,7 +101,6 @@ bool Bmi088::StartAccelerometer() noexcept {
     accelerometerInflight_.flags |= Bmi088SampleRecord::LateStart;
   }
   accelerometerDataReadyPending_ = false;
-  preferAccelerometer_ = false;
   return true;
 }
 
@@ -125,7 +123,6 @@ bool Bmi088::StartGyroscope() noexcept {
     gyroscopeInflight_.flags |= Bmi088SampleRecord::LateStart;
   }
   gyroscopeDataReadyPending_ = false;
-  preferAccelerometer_ = true;
   return true;
 }
 
@@ -163,9 +160,18 @@ void Bmi088::Process() noexcept {
     lastTemperatureStartTick_ = platform::Time::NowTicks();
   }
 
-  // 首选传感器无法启动时改试另一侧。Busy 或仅因先前传输仍在
-  // 进行时，绝不消费挂起的边沿。
-  if (preferAccelerometer_) {
+  // 按边沿年龄调度：先服务等待更久的挂起边沿，再试另一侧。固定的两侧交替
+  // 会让 2000 Hz 的陀螺长期占先，使周期更长（625 us）的加速度计边沿偶发被
+  // 合并；改为最老优先后，两路都能在自己的周期内被服务。
+  // 首选一侧无法启动时改试另一侧；Busy 或先前传输仍在进行时绝不消费挂起的边沿。
+  const std::uint32_t now = platform::Time::NowTicks();
+  bool preferAccelerometer = accelerometerDataReadyPending_;
+  if (accelerometerDataReadyPending_ && gyroscopeDataReadyPending_) {
+    preferAccelerometer =
+        static_cast<std::uint32_t>(now - accelerometerEvent_.tick) >=
+        static_cast<std::uint32_t>(now - gyroscopeEvent_.tick);
+  }
+  if (preferAccelerometer) {
     if (!StartAccelerometer())
       (void)StartGyroscope();
   } else {
@@ -202,4 +208,4 @@ Bmi088::State Bmi088::GetState() const noexcept {
     return State::Error;
   return IsReady() ? State::Ready : State::Initializing;
 }
-} //  device
+} // namespace device

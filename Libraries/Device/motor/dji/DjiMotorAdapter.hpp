@@ -27,7 +27,8 @@ public:
   [[nodiscard]] bool Init() noexcept;
   [[nodiscard]] std::size_t Count() const noexcept { return config_.count; }
   void Process() noexcept;
-  [[nodiscard]] bool ReadState(std::size_t id, MotorState &state) const noexcept;
+  [[nodiscard]] bool ReadState(std::size_t id,
+                               MotorState &state) const noexcept;
   [[nodiscard]] bool SetTorque(std::size_t id, float value) noexcept;
   void ClearCommands() noexcept;
 
@@ -37,5 +38,5 @@ private:
   bool ready_{false};
 };
 
-} //  device
+} // namespace device
 #endif

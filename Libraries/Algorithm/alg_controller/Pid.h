@@ -125,6 +125,6 @@ class PID
     void OutputFilter();
 };
 
-} //  alg_controller
+} // namespace alg_controller
 
 #endif

@@ -33,7 +33,7 @@ inline constexpr RgbColor Yellow{255U, 255U, 0U};
 inline constexpr RgbColor Cyan{0U, 255U, 255U};
 inline constexpr RgbColor Magenta{255U, 0U, 255U};
 
-} //  ws2812_color
+} // namespace ws2812_color
 
 class Ws2812 final {
 public:
@@ -114,6 +114,6 @@ private:
 static_assert(Ws2812::FrameSize <= platform::Spi::MaxAsyncLength,
               "WS2812 frame exceeds the SPI asynchronous transfer limit");
 
-} //  device
+} // namespace device
 
 #endif

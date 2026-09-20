@@ -45,4 +45,4 @@ std::uint16_t Buzzer::VolumeToDutyPermille(std::uint8_t volume) noexcept {
       MaxVolume);
 }
 
-} //  device
+} // namespace device

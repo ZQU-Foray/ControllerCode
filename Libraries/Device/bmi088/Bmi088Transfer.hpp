@@ -32,5 +32,5 @@ private:
   platform::Spi::CompletionNotification notification_{nullptr};
   void *context_{nullptr};
 };
-} //  device
+} // namespace device
 #endif

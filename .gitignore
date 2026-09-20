@@ -41,28 +41,3 @@ User_Configs/
 Tests/
 AGENTS.md
 
-# Version the motor refactor tests without exposing other local test artifacts.
-!/Tests/
-/Tests/*
-!/Tests/Motor/
-!/Tests/Application/
-/Tests/Application/*
-!/Tests/Application/ChassisControllerTest.cpp
-!/Tests/Device/
-/Tests/Device/*
-!/Tests/Device/DjiMotorTest.cpp
-!/Tests/Protocol/
-/Tests/Protocol/*
-!/Tests/Protocol/DjiEscTest.cpp
-!/Tests/ImuStream/
-/Tests/ImuStream/*
-!/Tests/ImuStream/*.cpp
-!/Tests/ImuStream/*.py
-!/Tests/ImuStream/CMakeLists.txt
-!/Tests/ImuStream/README.md
-!/Tests/ImuStream/RUNBOOK.md
-!/Tests/ImuAcquisition/
-/Tests/ImuAcquisition/*
-!/Tests/ImuAcquisition/*.cpp
-!/Tests/ImuAcquisition/CMakeLists.txt
-!/Tests/ImuAcquisition/README.md

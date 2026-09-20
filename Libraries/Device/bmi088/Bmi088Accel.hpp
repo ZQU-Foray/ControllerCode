@@ -173,6 +173,6 @@ private:
   std::array<std::uint8_t, MaximumTransferLength> receiveBuffer_{};
 };
 
-} //  device
+} // namespace device
 
 #endif

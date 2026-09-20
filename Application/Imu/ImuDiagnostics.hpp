@@ -12,5 +12,5 @@ public:
                       const device::Bmi088SampleRecord &record,
                       bool gyroscope) noexcept;
 };
-} //  application
+} // namespace application
 #endif

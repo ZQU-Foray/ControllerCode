@@ -77,6 +77,6 @@ private:
   Result lastResult_{Result::NotReady};
 };
 
-} //  device
+} // namespace device
 
 #endif

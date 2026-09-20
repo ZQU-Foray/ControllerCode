@@ -70,5 +70,5 @@ private:
   std::size_t head_{0U}, size_{0U};
   std::uint32_t overflow_{0U}, highWater_{0U};
 };
-} //  device
+} // namespace device
 #endif

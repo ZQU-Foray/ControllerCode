@@ -29,8 +29,7 @@ struct ChannelCapture {
 static_assert(sizeof(ChannelCapture) == 96U);
 struct Capture {
   std::uint32_t version{2U};
-  std::uint32_t state{
-      0U}; // 0：等待温度；1：记录中；2：已冻结
+  std::uint32_t state{0U}; // 0：等待温度；1：记录中；2：已冻结
   std::uint32_t count{0U};
   std::uint32_t stored{0U};
   std::uint32_t tickHz{0U};
@@ -48,8 +47,7 @@ struct Capture {
   std::int16_t minimum[3]{INT16_MAX, INT16_MAX, INT16_MAX};
   std::int16_t maximum[3]{INT16_MIN, INT16_MIN, INT16_MIN};
   std::uint32_t lastSequence{0U};
-  std::uint64_t elapsedTicks{
-      0U}; // 采集时长可能超过 32 位 DWT 回绕周期
+  std::uint64_t elapsedTicks{0U}; // 采集时长可能超过 32 位 DWT 回绕周期
   RawRecord records[StoredSamples]{};
   ChannelCapture channels[2]{}; // 加速度计、陀螺仪；保留 v1 前缀
 };
@@ -256,7 +254,7 @@ void ObserveChannel(const device::Bmi088 &imu,
   c.sumCompleteTicks += complete;
   ++c.count;
 }
-} // 
+} // namespace
 
 void ImuDiagnostics::Observe(const device::Bmi088 &imu,
                              const device::Bmi088SampleRecord &record,
@@ -315,8 +313,7 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
     return;
   const auto &gyro = imu.GetGyroscope();
   const auto sequence = record.sequence;
-  const auto tick =
-      record.drdyTick; // MCU 的 DRDY 观测时刻，并非传感器内部时刻
+  const auto tick = record.drdyTick; // MCU 的 DRDY 观测时刻，并非传感器内部时刻
   const auto &xyz = record.xyz;
   const auto count = gyroCapture.count;
   if (count == 0U) {
@@ -367,4 +364,4 @@ void ImuDiagnostics::Observe(const device::Bmi088 &,
                              const device::Bmi088SampleRecord &,
                              bool) noexcept {}
 #endif
-} //  application
+} // namespace application

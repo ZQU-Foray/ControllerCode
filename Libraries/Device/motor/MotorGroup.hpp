@@ -33,8 +33,7 @@ inline std::array<const void *, CAN_PORT_CHANNEL_COUNT> motorChannelOwners{};
  *       （含同型号）占用时 Init 失败，失败实例不占用通道。
  *       输出为型号原生输出轴单位；外接传动不包含在型号档案内。
  */
-template <MotorModel Model, std::size_t N>
-class MotorGroup final {
+template <MotorModel Model, std::size_t N> class MotorGroup final {
   static_assert(N > 0U, "电机组数量必须为正");
   using Mapping = MotorAdapterFor<Model>;
   using Adapter = typename Mapping::Adapter;
@@ -69,7 +68,8 @@ public:
   // 沿用“收、老化、发送、发布”，暂存的新指令在下次 Process 发出。
   void Process() noexcept { adapter_.Process(); }
   // 编号从零开始；失败清空状态，无反馈返回有效读取但 feedbackValid=false。
-  [[nodiscard]] bool ReadState(std::size_t id, MotorState &state) const noexcept {
+  [[nodiscard]] bool ReadState(std::size_t id,
+                               MotorState &state) const noexcept {
     return adapter_.ReadState(id, state);
   }
   // 原生输出轴 N·m；非有限输入清零有效槽位并返回 false。

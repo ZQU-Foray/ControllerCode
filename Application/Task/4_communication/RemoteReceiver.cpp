@@ -72,7 +72,7 @@ void PublishSnapshot(
   snapshotSequence.fetch_add(1U, std::memory_order_release);
 }
 
-} // 
+} // namespace
 
 bool RemoteReceiver::Init() noexcept {
   remoteReady.store(0U, std::memory_order_relaxed);
@@ -208,4 +208,4 @@ float RemoteReceiver::NormalizeChannel(const Snapshot &snapshot,
          static_cast<float>(ChannelMaximum - ChannelMiddle);
 }
 
-} //  application
+} // namespace application

@@ -95,4 +95,4 @@ void SbusParser::RecoverAfterRejectedFrame() noexcept {
   }
 }
 
-} //  protocol
+} // namespace protocol
