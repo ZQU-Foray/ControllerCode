@@ -16,6 +16,8 @@ namespace device {
  */
 class Bmi088Heater final {
 public:
+  // 恒温服务点。上电零偏标定的温度门控必须与本值一致（见 ImuTask 的静态断言），
+  // 否则标定永远进不了采样状态、z 轴零偏完全不会被扣除。
   static constexpr float DefaultTargetCelsius{50.0F};
   static constexpr float MinimumTargetCelsius{20.0F};
   static constexpr float MaximumTargetCelsius{60.0F};
@@ -74,10 +76,13 @@ public:
   }
 
 private:
-  // 预热占空比必须是满量程：实测原值 100‰（10%）的稳态只能到 42.4 ℃
-  // 并且仍在下降， 无法越过 45 ℃ 预热门槛，控制器会永久停在
-  // Preheating、永远进不了 50 ℃ 服务点。
-  static constexpr std::uint16_t PreheatDutyPermille{1000U};
+  // 预热占空比：满功率（1000‰）实测会把芯体冲到约 92 ℃。BMI088 温度寄存器
+  // 每 1.28 s 才更新一次（数据手册 5.3.7 节），叠加 128 ms 控制周期后反馈盲区
+  // 约 1.45 s；满功率下芯体温升约 39 ℃/s，等控制环首次“看见”45 ℃ 预热门槛时
+  // 真实温度已过冲约 +47 ℃，随后触发 65 ℃ 安全保护并进入分钟级回摆。
+  // 200‰（20%）由实测“10% 稳态 42.4 ℃”外推平衡温度约高于环境 37 ℃，仍能
+  // 越过门槛，而盲区过冲被限制在几度以内；更冷的环境由 PI 项补足。
+  static constexpr std::uint16_t PreheatDutyPermille{200U};
 
   void DisableOutput(State nextState) noexcept;
   [[nodiscard]] bool SetDuty(std::uint16_t dutyPermille) noexcept;

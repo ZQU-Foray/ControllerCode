@@ -23,6 +23,12 @@ constexpr std::uint32_t DataReadyFlags{AccelerometerDataReadyFlag |
                                        GyroscopeDataReadyFlag |
                                        TransferCompletedFlag};
 
+// 上电零偏标定的温度门控必须与恒温服务点一致；两者不一致时标定永远进不了
+// 采样状态，z 轴零偏完全不会被扣除，yaw 直接积分原始零偏。
+static_assert(application::GyroBiasCalibration::Config{}.targetCelsius ==
+                  device::Bmi088Heater::DefaultTargetCelsius,
+              "零偏标定温度门控必须与恒温目标一致");
+
 // 采集优先阶段的最大轮数：每轮只做边沿通知与传输衔接，不做慢路径工作。
 constexpr std::uint32_t AcquisitionRounds{6U};
 
@@ -45,7 +51,7 @@ std::atomic<std::uint32_t> bmi088HeaterDiagnosticTargetBits{0U};
 std::atomic<std::uint32_t> bmi088HeaterDiagnosticCommand{0U};
 struct HeaterDiagnosticReport {
   std::uint32_t version{1U}, requests{0U}, accepted{0U}, rejected{0U};
-  float requestedCelsius{0.0F}, activeCelsius{50.0F};
+  float requestedCelsius{0.0F}, activeCelsius{device::Bmi088Heater::DefaultTargetCelsius};
   std::uint32_t lastResult{0U}; // 0 无，1 已接受，2 已拒绝
 };
 volatile HeaterDiagnosticReport bmi088HeaterDiagnosticReport{};

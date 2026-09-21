@@ -5,6 +5,7 @@ namespace application {
 
 namespace {
 constexpr float ReferenceGravityMps2{9.80665F};
+constexpr std::uint64_t MillisecondsPerSecond{1000U};
 } // namespace
 
 void GyroBiasCalibration::Init(const Config &config) noexcept {
@@ -16,15 +17,20 @@ void GyroBiasCalibration::Reset() noexcept {
   state_ = State::WaitingForTemperature;
   bias_ = alg_math::Vector3{};
   spread_ = alg_math::Vector3{};
-  RestartWindow(0U);
+  RestartWindow();
   restarts_ = 0U; // 必须在 RestartWindow 之后清零，否则复位本身会被计成一次重启
-  temperatureReadyTick_ = 0U;
+  samplingTicks_ = 0U;
+  holdTicks_ = 0U;
+  holdMinimum_ = 0.0F;
+  holdMaximum_ = 0.0F;
+  holdActive_ = false;
+  timingAnchored_ = false;
   lastTick_ = 0U;
   temperatureCelsius_ = 0.0F;
   biasValid_ = false;
 }
 
-void GyroBiasCalibration::RestartWindow(std::uint32_t tick) noexcept {
+void GyroBiasCalibration::RestartWindow() noexcept {
   if (count_ != 0U) {
     ++restarts_; // 只统计"已经开始积累后被中断"的情况
   }
@@ -34,16 +40,16 @@ void GyroBiasCalibration::RestartWindow(std::uint32_t tick) noexcept {
   minimum_ = alg_math::Vector3{};
   maximum_ = alg_math::Vector3{};
   count_ = 0U;
-  windowStartTick_ = tick;
-  lastTick_ = tick;
+  windowTicks_ = 0U;
 }
 
-std::uint32_t
+std::uint64_t
 GyroBiasCalibration::TicksFromMs(std::uint32_t milliseconds) const noexcept {
-  const std::uint64_t ticks = static_cast<std::uint64_t>(milliseconds) *
-                              config_.tickFrequencyHz / 1000U;
-  return ticks > 0xFFFFFFFFULL ? 0xFFFFFFFFU
-                               : static_cast<std::uint32_t>(ticks);
+  // 不做 32 位饱和：480 MHz 下 20 s 是 9.6e9 tick，远大于 2^32，
+  // 饱和成 0xFFFFFFFF 会让"超过时限"的比较永远不成立。
+  return static_cast<std::uint64_t>(milliseconds) *
+         static_cast<std::uint64_t>(config_.tickFrequencyHz) /
+         MillisecondsPerSecond;
 }
 
 void GyroBiasCalibration::Process(const alg_math::Vector3 &gyroRadPerSec,
@@ -53,34 +59,68 @@ void GyroBiasCalibration::Process(const alg_math::Vector3 &gyroRadPerSec,
   if (state_ == State::Completed || state_ == State::TimedOut) {
     return; // 终态不再改变：标定只做一次
   }
+  if (config_.tickFrequencyHz == 0U) {
+    return; // 没有可信时基：既不积累也不判定
+  }
 
+  // 建立时基：首个样本只记录起点，不产生时间增量。
+  const std::uint32_t deltaTicks = timingAnchored_ ? (tick - lastTick_) : 0U;
+  timingAnchored_ = true;
   lastTick_ = tick;
   temperatureCelsius_ = temperatureCelsius;
 
-  // 温度门控：离开容差就清空窗口，并重新开始计时。
+  // 温度门控：离开容差就清空窗口与稳定保持，并重新开始计时。
   const bool temperatureReady =
       std::isfinite(temperatureCelsius) &&
       std::fabs(temperatureCelsius - config_.targetCelsius) <=
           config_.temperatureToleranceCelsius;
   if (!temperatureReady) {
     if (state_ != State::WaitingForTemperature || count_ != 0U) {
-      RestartWindow(tick);
+      RestartWindow();
     }
     state_ = State::WaitingForTemperature;
-    temperatureReadyTick_ = tick;
+    holdActive_ = false;
+    holdTicks_ = 0U;
     return;
   }
-  if (state_ == State::WaitingForTemperature) {
-    state_ = State::Sampling;
-    temperatureReadyTick_ = tick;
-    RestartWindow(tick);
+
+  // 温度稳定门控：进带后还要保持足够久且极差足够小才允许开窗，
+  // 带内极差超限就从当前温度重新开始保持计时。
+  if (!holdActive_) {
+    holdActive_ = true;
+    holdTicks_ = 0U;
+    holdMinimum_ = temperatureCelsius;
+    holdMaximum_ = temperatureCelsius;
+  } else {
+    if (temperatureCelsius < holdMinimum_) {
+      holdMinimum_ = temperatureCelsius;
+    }
+    if (temperatureCelsius > holdMaximum_) {
+      holdMaximum_ = temperatureCelsius;
+    }
+  }
+  holdTicks_ += deltaTicks;
+  if (holdMaximum_ - holdMinimum_ > config_.temperatureStabilityCelsius) {
+    holdMinimum_ = temperatureCelsius;
+    holdMaximum_ = temperatureCelsius;
+    holdTicks_ = 0U;
   }
 
-  // 时间上限：温度到位后仍无法完成则放弃，退化到未标定行为。
-  if (static_cast<std::uint32_t>(tick - temperatureReadyTick_) >
-      TicksFromMs(config_.timeoutMs)) {
+  if (state_ == State::WaitingForTemperature) {
+    if (holdTicks_ < TicksFromMs(config_.temperatureSettleMs)) {
+      return; // 温度还没稳定够久：不开窗、不积累样本
+    }
+    state_ = State::Sampling;
+    RestartWindow();
+  }
+
+  // 采样预算跨窗口累计：窗口因运动重启不重置预算；温度出带后暂停增长
+  // 但保留已用额度，避免"开机后被搬动几秒"就花掉整轮标定机会。
+  samplingTicks_ += deltaTicks;
+  if (samplingTicks_ >= TicksFromMs(config_.timeoutMs)) {
     state_ = State::TimedOut;
     biasValid_ = false;
+    RestartWindow();
     return;
   }
 
@@ -89,17 +129,17 @@ void GyroBiasCalibration::Process(const alg_math::Vector3 &gyroRadPerSec,
   if (!alg_math::IsFinite(accelMetersPerSec2) ||
       std::fabs(accelNorm - ReferenceGravityMps2) >
           config_.maximumAccelNormErrorMps2) {
-    RestartWindow(tick);
+    RestartWindow();
     return;
   }
 
-  Accumulate(gyroRadPerSec, tick);
+  Accumulate(gyroRadPerSec, deltaTicks);
 }
 
 void GyroBiasCalibration::Accumulate(const alg_math::Vector3 &gyroRadPerSec,
-                                     std::uint32_t tick) noexcept {
+                                     std::uint32_t deltaTicks) noexcept {
   if (!alg_math::IsFinite(gyroRadPerSec)) {
-    RestartWindow(tick);
+    RestartWindow();
     return;
   }
 
@@ -131,6 +171,7 @@ void GyroBiasCalibration::Accumulate(const alg_math::Vector3 &gyroRadPerSec,
   sumY_ += static_cast<double>(gyroRadPerSec.y);
   sumZ_ += static_cast<double>(gyroRadPerSec.z);
   ++count_;
+  windowTicks_ += deltaTicks;
 
   // 每个样本都检查极差：被碰或振动必须在下一个样本就重启窗口，
   // 否则短促扰动会被记进窗口，只能等到周期检查或收尾时才被剔除。
@@ -140,7 +181,7 @@ void GyroBiasCalibration::Accumulate(const alg_math::Vector3 &gyroRadPerSec,
   if (spread.x > config_.maximumSpreadRadPerSec ||
       spread.y > config_.maximumSpreadRadPerSec ||
       spread.z > config_.maximumSpreadRadPerSec) {
-    RestartWindow(tick);
+    RestartWindow();
     return;
   }
 
@@ -153,20 +194,19 @@ void GyroBiasCalibration::Accumulate(const alg_math::Vector3 &gyroRadPerSec,
     if (std::fabs(mean.x) > config_.maximumMeanRateRadPerSec ||
         std::fabs(mean.y) > config_.maximumMeanRateRadPerSec ||
         std::fabs(mean.z) > config_.maximumMeanRateRadPerSec) {
-      RestartWindow(tick);
+      RestartWindow();
       return;
     }
   }
 
-  if (static_cast<std::uint32_t>(tick - windowStartTick_) >=
-      TicksFromMs(config_.windowMs)) {
+  if (windowTicks_ >= TicksFromMs(config_.windowMs)) {
     Finalize();
   }
 }
 
 void GyroBiasCalibration::Finalize() noexcept {
   if (count_ == 0U) {
-    RestartWindow(lastTick_);
+    RestartWindow();
     return;
   }
 
@@ -186,7 +226,7 @@ void GyroBiasCalibration::Finalize() noexcept {
       spread.x > config_.maximumSpreadRadPerSec ||
       spread.y > config_.maximumSpreadRadPerSec ||
       spread.z > config_.maximumSpreadRadPerSec) {
-    RestartWindow(lastTick_);
+    RestartWindow();
     return;
   }
 
@@ -204,10 +244,14 @@ GyroBiasCalibration::GetSnapshot() const noexcept {
   snapshot.spreadRadPerSec = spread_;
   snapshot.samples = count_;
   snapshot.restarts = restarts_;
-  snapshot.elapsedMs = static_cast<std::uint32_t>(
-      static_cast<std::uint64_t>(
-          static_cast<std::uint32_t>(lastTick_ - temperatureReadyTick_)) *
-      1000U / config_.tickFrequencyHz);
+  // 时基不可用时不做除零，时长一律报 0。
+  const std::uint32_t frequencyHz = config_.tickFrequencyHz;
+  if (frequencyHz != 0U) {
+    snapshot.elapsedMs = static_cast<std::uint32_t>(
+        samplingTicks_ * MillisecondsPerSecond / frequencyHz);
+    snapshot.temperatureHoldMs = static_cast<std::uint32_t>(
+        holdTicks_ * MillisecondsPerSecond / frequencyHz);
+  }
   snapshot.temperatureCelsius = temperatureCelsius_;
   snapshot.biasValid = biasValid_;
   return snapshot;

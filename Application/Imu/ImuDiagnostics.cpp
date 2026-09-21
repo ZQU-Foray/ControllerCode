@@ -1,4 +1,5 @@
 #include "Application/Imu/ImuDiagnostics.hpp"
+#include "Libraries/Device/bmi088/Bmi088Heater.hpp"
 #include "Platform/Interface/Time.hpp"
 #include <cmath>
 #include <cstdint>
@@ -295,7 +296,9 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
   if (gyroCapture.state == 2U)
     return;
   if (gyroCapture.state == 0U) {
-    if (!std::isfinite(celsius) || std::fabs(celsius - 50.0F) > 0.5F) {
+    // 温度资格与服务点保持一致，否则本诊断在服务点变更后永远不会就绪。
+    if (!std::isfinite(celsius) ||
+        std::fabs(celsius - device::Bmi088Heater::DefaultTargetCelsius) > 0.5F) {
       temperatureQualified = false;
       return;
     }

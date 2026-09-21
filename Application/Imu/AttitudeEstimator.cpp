@@ -1,4 +1,5 @@
 #include "Application/Imu/AttitudeEstimator.hpp"
+#include "Application/Imu/ZeroRateBiasObserver.hpp"
 #include "Libraries/Algorithm/alg_estimate/ImuBodyMapping.hpp"
 #include "Libraries/Algorithm/alg_estimate/QuaternionEkf.hpp"
 #include "Platform/Interface/Time.hpp"
@@ -11,7 +12,14 @@ namespace {
 alg_estimate::QuaternionEkf estimator;
 alg_estimate::QuaternionEkf::Config config{};
 GyroBiasCalibration calibration;
+// 零速零偏观测器（ZARU）：静止时用"ω=0"持续修正 z 轴零偏。
+ZeroRateBiasObserver zeroRate;
 bool ready{false};
+
+// 当前实际从 z 轴扣掉的零偏，仅供诊断存档。
+float appliedZTrimRadPerSec{0.0F};
+// 上一次发布零速观测器存档时的窗口计数，用于按窗口（约 1 Hz）刷新。
+std::uint32_t lastZeroRateWindowCount{0U};
 
 // 上电标定结果：x/y 注入滤波器初值，z 只在输入侧扣除（算法没有 z 轴零偏状态）。
 bool calibrationInjected{false};
@@ -32,6 +40,33 @@ volatile AttitudeEstimator::Output outputArchive{};
 volatile AttitudeEstimator::Statistics statisticsArchive{};
 static_assert(sizeof(AttitudeEstimator::Output) == sizeof(outputArchive),
               "存档布局必须一致");
+
+/**
+ * @brief 零速观测器诊断存档，与 Output/Statistics 分开存放。
+ *
+ * 单独开一块是为了不动既有 Output/Statistics 的布局（调试器与工具
+ * 依赖它们的字节偏移），同时把 ZARU 的判据统计与估计值暴露出来，
+ * 便于先跑 monitor-only 校验判据是否会误触发。
+ */
+constexpr std::uint32_t ZeroRateArchiveVersion{1U};
+
+struct ZeroRateArchive final {
+  std::uint32_t version{ZeroRateArchiveVersion};
+  std::uint32_t flags{0U}; // bit0 当前窗口判据合格；bit1 正在用观测值修正
+  float biasRadPerSec{0.0F};
+  float varianceRadPerSec2{0.0F};
+  float appliedTrimRadPerSec{0.0F};
+  float windowMeanRadPerSec[3]{};
+  float windowStdRadPerSec[3]{};
+  float accelNormMeanMps2{0.0F};
+  float accelNormStdMps2{0.0F};
+  std::uint32_t staticMs{0U};
+  std::uint32_t qualifiedWindows{0U};
+  std::uint32_t observationCount{0U};
+  std::uint32_t rejectedWindows{0U};
+};
+static_assert(sizeof(ZeroRateArchive) == 68U, "零速观测器存档布局必须稳定");
+volatile ZeroRateArchive zeroRateArchive{};
 
 void PublishArchive(const AttitudeEstimator::Output &source) noexcept {
   const std::uint8_t *bytes = reinterpret_cast<const std::uint8_t *>(&source);
@@ -56,6 +91,14 @@ AttitudeEstimator::Output ReadArchive() noexcept {
 void ResetArchives() noexcept {
   AttitudeEstimator::Output output{};
   PublishArchive(output);
+  ZeroRateArchive zeroRateState{};
+  const std::uint8_t *zeroRateBytes =
+      reinterpret_cast<const std::uint8_t *>(&zeroRateState);
+  volatile std::uint8_t *zeroRateTarget =
+      reinterpret_cast<volatile std::uint8_t *>(&zeroRateArchive);
+  for (std::size_t index = 0U; index < sizeof(zeroRateState); ++index) {
+    zeroRateTarget[index] = zeroRateBytes[index];
+  }
   AttitudeEstimator::Statistics statistics{};
   const std::uint8_t *bytes =
       reinterpret_cast<const std::uint8_t *>(&statistics);
@@ -114,6 +157,35 @@ void PublishOutput(const device::Bmi088SampleRecord &record) {
   statisticsArchive.calibrationRestarts = calibrationSnapshot.restarts;
 }
 
+/** 发布零速观测器诊断存档；布局与 ZeroRateArchive 一致。 */
+void PublishZeroRate() noexcept {
+  const ZeroRateBiasObserver::Snapshot snapshot = zeroRate.GetSnapshot();
+  ZeroRateArchive archive{};
+  archive.version = ZeroRateArchiveVersion;
+  archive.flags = (snapshot.staticQualified ? 1U : 0U) |
+                  (snapshot.correctionApplied ? 2U : 0U);
+  archive.biasRadPerSec = snapshot.biasRadPerSec;
+  archive.varianceRadPerSec2 = snapshot.varianceRadPerSec2;
+  archive.appliedTrimRadPerSec = appliedZTrimRadPerSec;
+  for (int axis = 0; axis < 3; ++axis) {
+    archive.windowMeanRadPerSec[axis] = snapshot.windowMeanRadPerSec[axis];
+    archive.windowStdRadPerSec[axis] = snapshot.windowStdRadPerSec[axis];
+  }
+  archive.accelNormMeanMps2 = snapshot.accelNormMeanMps2;
+  archive.accelNormStdMps2 = snapshot.accelNormStdMps2;
+  archive.staticMs = snapshot.staticMs;
+  archive.qualifiedWindows = snapshot.qualifiedWindows;
+  archive.observationCount = snapshot.observationCount;
+  archive.rejectedWindows = snapshot.rejectedWindows;
+
+  const std::uint8_t *bytes = reinterpret_cast<const std::uint8_t *>(&archive);
+  volatile std::uint8_t *target =
+      reinterpret_cast<volatile std::uint8_t *>(&zeroRateArchive);
+  for (std::size_t index = 0U; index < sizeof(archive); ++index) {
+    target[index] = bytes[index];
+  }
+}
+
 void ProcessGyroscope(const device::Bmi088SampleRecord &record,
                       float temperatureCelsius) noexcept {
   if (record.sequence <= lastGyroSequence) {
@@ -143,19 +215,24 @@ void ProcessGyroscope(const device::Bmi088SampleRecord &record,
   alg_estimate::GyroRecordToBody(record, gyroBody);
   alg_math::Vector3 gyro{gyroBody[0], gyroBody[1], gyroBody[2]};
 
-  // 上电静止标定使用未经修正的角速度；加速度样本仅作为静止门控。
-  calibration.Process(gyro, accelAvailable ? accelBody : alg_math::Vector3{},
-                      temperatureCelsius, record.drdyTick);
+  // 零速观测器与上电静止标定都使用未经修正的角速度；加速度样本仅作为静止门控。
+  const alg_math::Vector3 gateAccel =
+      accelAvailable ? accelBody : alg_math::Vector3{};
+  calibration.Process(gyro, gateAccel, temperatureCelsius, record.drdyTick);
+  zeroRate.Process(gyro, gateAccel, record.drdyTick);
   if (!calibrationInjected && calibration.IsBiasValid()) {
     const alg_math::Vector3 bias = calibration.GetBiasRadPerSec();
-    // x/y 作为滤波器初值，z 在输入侧扣除：两者不重复抵消。
+    // x/y 作为滤波器初值；z 只作为观测器尚未给出估计时的回退值。
     estimator.SeedGyroBias(bias);
     gyroZTrimRadPerSec = bias.z;
     calibrationInjected = true;
   }
-  if (calibrationInjected) {
-    gyro.z -= gyroZTrimRadPerSec;
-  }
+  // z 轴零偏修正优先级：零速观测器（持续跟踪）→ 上电标定值 → 不修正。
+  const float zTrim = zeroRate.IsCorrectionApplied()
+                          ? zeroRate.GetBiasRadPerSec()
+                          : (calibrationInjected ? gyroZTrimRadPerSec : 0.0F);
+  appliedZTrimRadPerSec = zTrim;
+  gyro.z -= zTrim;
 
   const std::uint32_t accelAgeTicks = record.drdyTick - lastAccelTick;
   const float accelAgeSeconds = platform::Time::TicksToSeconds(accelAgeTicks);
@@ -177,6 +254,12 @@ void ProcessGyroscope(const device::Bmi088SampleRecord &record,
     estimator.Predict(gyro, stepSeconds);
   }
   PublishOutput(record);
+  // 零速观测器的诊断量只在窗口结束时变化（约 1 Hz），不必每拍都拷贝存档。
+  const std::uint32_t zeroRateWindows = zeroRate.GetWindowCount();
+  if (zeroRateWindows != lastZeroRateWindowCount) {
+    lastZeroRateWindowCount = zeroRateWindows;
+    PublishZeroRate();
+  }
 }
 
 void ProcessAccelerometer(const device::Bmi088SampleRecord &record) noexcept {
@@ -208,8 +291,14 @@ bool AttitudeEstimator::Init() noexcept {
   calibrationConfig.tickFrequencyHz = platform::Time::TickFrequencyHz();
   calibration.Init(calibrationConfig);
 
+  ZeroRateBiasObserver::Config zeroRateConfig{};
+  zeroRateConfig.tickFrequencyHz = platform::Time::TickFrequencyHz();
+  zeroRate.Init(zeroRateConfig);
+
   calibrationInjected = false;
   gyroZTrimRadPerSec = 0.0F;
+  appliedZTrimRadPerSec = 0.0F;
+  lastZeroRateWindowCount = zeroRate.GetWindowCount();
   gyroAnchored = false;
   lastGyroTick = 0U;
   lastGyroSequence = 0U;

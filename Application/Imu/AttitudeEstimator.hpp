@@ -14,8 +14,9 @@ namespace application {
  *   - 只做原始样本到 EKF 的搬运：单位与坐标映射由 ImuBodyMapping 完成；
  *   - 只做时序决策：按 PopNextSample 的时间顺序配对加速度计与陀螺样本，
  *     用 drdyTick 差分得到真实步长；
- *   - 只做零偏管理：上电后用静止窗口估计三轴零偏，其中 x/y 作为滤波器初值注入，
- *     z 轴（算法没有对应状态）在输入侧外部扣除；
+ *   - 只做零偏管理：上电后用静止窗口估计三轴零偏，其中 x/y 作为滤波器初值注入；
+ *     z 轴（算法没有对应状态）在输入侧外部扣除，优先级为
+ *     零速观测器（ZARU，静止时用"ω=0"持续跟踪）→ 上电标定值 → 不修正；
  *   - 不做任何滤波、平滑、外插或坏样本修补，坏时序直接丢弃并计数。
  *
  * 时序策略（单一所有者，仅允许 IMU 任务调用）：
@@ -51,12 +52,14 @@ public:
     std::uint32_t stable{0U};
     std::uint32_t reserved{0U};
     // 版本 2：上电静止标定结果与状态
+    // 注意：z 轴**实际扣除值**不一定是这里的 z，而是零速观测器的估计值
+    // （见 AttitudeEstimator.cpp 里的 zeroRateArchive）。
     float calibrationBiasRadPerSec[3]{};   // 静止窗口估计的三轴零偏
     float calibrationSpreadRadPerSec[3]{}; // 窗口内每轴极差
     std::uint32_t calibrationState{0U};    // 见 GyroBiasCalibration::State
     std::uint32_t calibrationSamples{0U};  // 当前窗口样本数
     float calibrationTemperatureCelsius{0.0F};
-    std::uint32_t calibrationElapsedMs{0U}; // 温度到位后经过的时间
+    std::uint32_t calibrationElapsedMs{0U}; // 累计处于采样状态的时间
   };
   static_assert(sizeof(Output) == 120U, "调试器存档布局必须稳定");
 

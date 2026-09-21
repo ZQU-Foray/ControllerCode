@@ -9,9 +9,9 @@ namespace {
 constexpr float PidKp{10.0F};
 constexpr float PidKi{1.0F};
 constexpr float PidKd{0.0F};
-// 输出上限与积分上限按 PWM 千分比给出。实测原值 30‰（3%）不足以维持 50 ℃，
+// 输出上限与积分上限按 PWM 千分比给出。实测原值 30‰（3%）不足以维持恒温服务点，
 // 因此放大到 30% 并保持原有增益不变：比例项偏弱、无微分项，响应慢但过阻尼，
-// 不会在 45 ℃ 预热门槛附近产生极限环。65 ℃ 硬保护与 500 ms 样本超时保持不变。
+// 不会在预热门槛附近产生极限环。65 ℃ 硬保护与 500 ms 样本超时保持不变。
 constexpr float PidMaximumOutput{300.0F};
 constexpr float PidIntegralLimit{300.0F};
 constexpr float DefaultControlPeriodSeconds{0.128F};
@@ -20,6 +20,7 @@ constexpr float PreheatThresholdFor(float targetCelsius) {
              ? targetCelsius - 2.0F
              : Bmi088Heater::PreheatThresholdCelsius;
 }
+// 默认服务点的预热门槛受 PreheatThresholdCelsius 钳位（45 ℃）。
 static_assert(PreheatThresholdFor(Bmi088Heater::DefaultTargetCelsius) ==
               Bmi088Heater::PreheatThresholdCelsius);
 static_assert(PreheatThresholdFor(32.0F) == 30.0F);
@@ -140,6 +141,13 @@ void Bmi088Heater::Process(const Bmi088Temperature &temperature) noexcept {
     DisableOutput(State::Fault);
     pid_.Reset();
     return;
+  }
+
+  // 单向积分钳位：加热器只有加热权限，负输出恒被钳为 0，负积分没有物理意义，
+  // 只会在超温段持续累积（实测可达 −300‰ 饱和），温度跌回带内后压住比例项、
+  // 使加热器长时间无输出（实测 48 ℃ 以下仍为 0），显著拉长回摆时间。
+  if (pid_.GetIntegralError() < 0.0F) {
+    (void)pid_.SetIntegralError(0.0F);
   }
 
   float output = pid_.GetOut();
