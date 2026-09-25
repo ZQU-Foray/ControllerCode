@@ -1,0 +1,11 @@
+# CODEOWNERS — Review 自动分派
+#
+# 本仓 owner 角色：电控（见 foray_docs/repository_structure.md §2）
+#
+# 注意：被引用的 team 必须对本仓有 Write 权限，否则静默失效。
+#       电控组已确认为 push。
+
+*       @ZQU-Foray/电控组
+
+# 链路协议相关改动同时需要算法组（X2 契约方）Review
+/Platform/Interface/UsbCdc.hpp   @ZQU-Foray/电控组 @ZQU-Foray/算法组
