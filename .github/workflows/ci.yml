@@ -1,0 +1,185 @@
+# 复制自组织 CI 模板：ZQU-Foray/.github → workflows/ci-template.yml
+# 本仓为**既有代码仓**，对 lint-c 做了增量改造（见下方注释），其余保持一致。
+#
+# 设计原则：**不要让存量代码背锅，也不要放过新代码**。
+#   - 空仓库 / 无适用文件 → 跳过（绿灯）
+#   - 有存量不合规代码 → 只检查**本次改动**的文件，增量收敛
+#   - 长期红灯会让人习惯性忽略 CI，等于没有 CI
+
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  # ---- Python 代码检查 ----
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检测是否存在 Python 代码
+        id: detect
+        shell: bash
+        run: |
+          if find . -name '*.py' -not -path './.git/*' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "未发现 Python 代码，跳过。"
+          fi
+
+      - name: Set up Python
+        if: steps.detect.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          pip install ruff black
+
+      - name: Lint with ruff
+        if: steps.detect.outputs.found == 'true'
+        run: ruff check .
+
+      - name: Format check with black
+        if: steps.detect.outputs.found == 'true'
+        run: black --check --diff .
+
+  # ---- C/C++ 格式检查（**增量**，本仓特有）----
+  # 本仓有 ~300 个存量 C/C++ 文件，其中约 2/3 不符合 clang-format。
+  # 全量检查会让 CI 长期全红；全量重排会产生一次巨大的无意义 diff（且应由电控组自行决定时机）。
+  # 因此策略是**增量收敛**：只要求本次改动合规，存量随重构逐步消除。
+  #
+  # 排除 Platform/STM32H7/Drivers/（STM32 官方 HAL，第三方，不归我们改）。
+  # 空仓库同样安全：改动集为空即跳过。
+  lint-c:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+
+      - name: 确定基准提交
+        id: base
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 格式检查（仅本次改动文件）
+        shell: bash
+        run: |
+          BASE="${{ steps.base.outputs.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "首次推送，无基准提交，跳过。"
+            exit 0
+          fi
+          git fetch -q origin "$BASE" 2>/dev/null || true
+          mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR "$BASE"...HEAD \
+            | grep -E '\.(c|h|cpp|hpp)$' | grep -vE '^Platform/STM32H7/Drivers/' || true)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "本次改动无 C/C++ 文件，跳过。"
+            exit 0
+          fi
+          printf '检查 %d 个改动文件：\n' "${#FILES[@]}"
+          printf '  %s\n' "${FILES[@]}"
+          if clang-format --dry-run --Werror "${FILES[@]}"; then
+            echo "✅ clang-format 通过"
+          else
+            echo "::error::本次改动的 C/C++ 文件不符合 clang-format。"
+            echo "::error::本地执行 clang-format -i <文件> 后重新提交。"
+            exit 1
+          fi
+
+  # ---- Python 测试 ----
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检测是否存在 Python 测试
+        id: detect
+        shell: bash
+        run: |
+          if find . \( -name 'test_*.py' -o -name '*_test.py' \) \
+               -not -path './.git/*' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "未发现 Python 测试，跳过。"
+          fi
+
+      - name: Set up Python
+        if: steps.detect.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        if: steps.detect.outputs.found == 'true'
+        shell: bash
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pytest
+
+      - name: Run tests
+        if: steps.detect.outputs.found == 'true'
+        run: pytest -v
+
+  # ---- ROS 2 构建与测试 ----
+  # 本仓是裸机 MCU 固件，不是 ROS 2 工作空间；无 package.xml 时本作业自动跳过。
+  # 保留的目的是万一将来引入 ROS 2 工具链时无需再改 CI。
+  build-ros2:
+    runs-on: ubuntu-22.04
+    container: ros:humble
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检测是否为 ROS 2 仓库
+        id: detect
+        shell: bash
+        run: |
+          if find . -name package.xml -not -path './.git/*' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "未发现 ROS 2 package，跳过 ROS 2 构建。"
+          fi
+
+      - name: 安装依赖 (rosdep)
+        if: steps.detect.outputs.found == 'true'
+        shell: bash
+        run: |
+          apt-get update
+          rosdep update
+          rosdep install -y -r --from-paths . --ignore-src --rosdistro humble
+
+      - name: 构建 (colcon build)
+        if: steps.detect.outputs.found == 'true'
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+      - name: 测试 (colcon test)
+        if: steps.detect.outputs.found == 'true'
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          source install/setup.bash
+          colcon test --event-handlers console_direct+
+          colcon test-result --verbose
