@@ -6,21 +6,29 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace device {
+namespace device
+{
 
 /**
  * @brief BMI088 温度读取子设备，使用加速度计接口域的温度寄存器。
  * @note 温度寄存器位于加速度计片选域内，须在加速度计完成初始化后由
  *       协调器调用 Enable 启用；数据读取全部通过 DMA 非阻塞接口完成。
  */
-class Bmi088Temperature final {
+class Bmi088Temperature final
+{
 public:
   static constexpr float CelsiusPerLsb{0.125F};
   static constexpr float CelsiusOffset{23.0F};
 
-  enum class State : std::uint8_t { Disabled, Running, Error };
+  enum class State : std::uint8_t
+  {
+    Disabled,
+    Running,
+    Error
+  };
 
-  struct Sample final {
+  struct Sample final
+  {
     std::int16_t raw{0};
   };
 
@@ -48,11 +56,12 @@ public:
   // 仅当本次调用启动了新传输（而非既有传输）时为 true。
   bool TryStart() noexcept;
 
-  void SetCompletionNotification(platform::Spi::CompletionNotification callback,
-                                 void *context) noexcept {
+  void SetCompletionNotification(platform::Spi::CompletionNotification callback, void *context) noexcept
+  {
     completion_.SetNotification(callback, context);
   }
-  [[nodiscard]] std::uint32_t GetCompletionTick() const noexcept {
+  [[nodiscard]] std::uint32_t GetCompletionTick() const noexcept
+  {
     return completion_.CompletedTick();
   }
 
@@ -60,7 +69,8 @@ public:
    * @brief 查询温度读取是否已被启用。
    * @return 已通过 Enable 启用时返回 true。
    */
-  [[nodiscard]] bool IsEnabled() const noexcept {
+  [[nodiscard]] bool IsEnabled() const noexcept
+  {
     return state_ != State::Disabled;
   }
 
@@ -68,11 +78,15 @@ public:
    * @brief 查询本子设备是否有尚未收割终态的异步事务。
    * @return 存在在途事务时返回 true，供协调器进行总线避让。
    */
-  [[nodiscard]] bool HasPendingTransfer() const noexcept {
+  [[nodiscard]] bool HasPendingTransfer() const noexcept
+  {
     return transferActive_;
   }
 
-  [[nodiscard]] State GetState() const noexcept { return state_; }
+  [[nodiscard]] State GetState() const noexcept
+  {
+    return state_;
+  }
 
   /**
    * @brief 获取最近一次成功读取的 11 位符号扩展原始温度计数。
@@ -81,11 +95,13 @@ public:
    */
   [[nodiscard]] bool TryGetSample(Sample &sample) const noexcept;
 
-  [[nodiscard]] std::uint32_t GetReadCount() const noexcept {
+  [[nodiscard]] std::uint32_t GetReadCount() const noexcept
+  {
     return readCount_;
   }
 
-  [[nodiscard]] std::uint32_t GetErrorCount() const noexcept {
+  [[nodiscard]] std::uint32_t GetErrorCount() const noexcept
+  {
     return errorCount_;
   }
 
@@ -94,7 +110,8 @@ public:
    * @param raw 符号扩展后的 11 位原始温度计数值。
    * @return 按 0.125 °C/LSB 与 23 °C 偏移换算的温度值。
    */
-  [[nodiscard]] static float ToCelsius(std::int16_t raw) noexcept {
+  [[nodiscard]] static float ToCelsius(std::int16_t raw) noexcept
+  {
     return static_cast<float>(raw) * CelsiusPerLsb + CelsiusOffset;
   }
 

@@ -7,14 +7,16 @@
 #include "Platform/Interface/Time.hpp"
 #include <cstdint>
 
-namespace device {
+namespace device
+{
 
 /**
  * @brief BMI088 恒温控制器，以新鲜温度样本驱动板载加热 PWM。
  * @note 控制参数由原工程 10000 计数量纲等比例换算为 PWM 千分比；
  *       温度无效、过温或样本超时时输出立即归零。
  */
-class Bmi088Heater final {
+class Bmi088Heater final
+{
 public:
   // 恒温服务点。上电零偏标定的温度门控必须与本值一致（见 ImuTask 的静态断言），
   // 否则标定永远进不了采样状态、z 轴零偏完全不会被扣除。
@@ -27,7 +29,8 @@ public:
   static constexpr std::uint32_t SampleTimeoutMs{500U};
   static constexpr std::uint32_t PwmFrequencyHz{100U};
 
-  enum class State : std::uint8_t {
+  enum class State : std::uint8_t
+  {
     Disabled,
     WaitingForTemperature,
     Preheating,
@@ -60,18 +63,28 @@ public:
    */
   void Process(const Bmi088Temperature &temperature) noexcept;
 
-  [[nodiscard]] bool IsEnabled() const noexcept { return enabled_; }
-  [[nodiscard]] State GetState() const noexcept { return state_; }
-  [[nodiscard]] float GetTargetCelsius() const noexcept {
+  [[nodiscard]] bool IsEnabled() const noexcept
+  {
+    return enabled_;
+  }
+  [[nodiscard]] State GetState() const noexcept
+  {
+    return state_;
+  }
+  [[nodiscard]] float GetTargetCelsius() const noexcept
+  {
     return targetCelsius_;
   }
-  [[nodiscard]] float GetTemperatureCelsius() const noexcept {
+  [[nodiscard]] float GetTemperatureCelsius() const noexcept
+  {
     return temperatureCelsius_;
   }
-  [[nodiscard]] std::uint16_t GetDutyPermille() const noexcept {
+  [[nodiscard]] std::uint16_t GetDutyPermille() const noexcept
+  {
     return dutyPermille_;
   }
-  [[nodiscard]] platform::Pwm::Result GetLastPwmResult() const noexcept {
+  [[nodiscard]] platform::Pwm::Result GetLastPwmResult() const noexcept
+  {
     return lastPwmResult_;
   }
 

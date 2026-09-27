@@ -77,7 +77,7 @@ ChassisTask 的目标／模式设定入口；此重构未改变原有跨任务�
 状态角度为首次反馈以来的输出轴累计 deg，转速为输出轴 rpm。方向配置同时作用于
 角度、速度、力矩。lastUpdateTick 是 platform::Time 的原始 Tick，只有收到过反馈
 后才有效，按无符号时间差和平台频率换算；控制器不使用此字段。
-feedbackValid 表示曾收到有效反馈，online 表示未超过现有 10ms 老化阈值；离线时
+feedbackValid 表示曾收到有效反馈，online 表示未超过现有 50ms 老化阈值；离线时
 可保留最后数值，但不能用作在线闭环输入。
 
 DjiMotor::Profile 的 Kt 已是输出轴 N·m/A；适配器仅改变力矩方向，不重复乘减速比。

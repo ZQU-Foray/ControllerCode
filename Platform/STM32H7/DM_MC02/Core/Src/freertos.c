@@ -111,6 +111,10 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  if (!Application_InitRtos())
+  {
+    Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -134,7 +138,7 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    Application_RunOnce();
+    (void)Application_Start();
     osDelay(1);
   }
   /* USER CODE END StartDefaultTask */

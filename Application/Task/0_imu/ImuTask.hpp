@@ -1,16 +1,18 @@
 #ifndef APPLICATION_TASK_IMU_TASK_HPP
 #define APPLICATION_TASK_IMU_TASK_HPP
 
-namespace application::task {
+namespace application::task
+{
 
 /**
  * @brief BMI088 原始数据采集与姿态解算任务。
  * @note 本任务独占 BMI088 与恒温器；两路 DRDY 通过 ISR 线程标志唤醒任务。
- *       任务收割原始样本后旁路交给 AttitudeEstimator（单位/坐标映射 + 四元数
- *       EKF）与 ImuDiagnostics（Debug 只读诊断）；本任务不做滤波、标定或
+ *       任务收割原始样本后旁路交给 AttitudeEstimator（单位/坐标映射 + VQF）
+ *       与 ImuDiagnostics（仅调试构建的只读诊断）；本任务不做滤波、标定或
  *       任何形式的数据平滑。
  */
-class ImuTask final {
+class ImuTask final
+{
 public:
   ImuTask() = delete;
 

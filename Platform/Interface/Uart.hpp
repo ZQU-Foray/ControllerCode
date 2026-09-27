@@ -7,18 +7,22 @@
 #include <cstdint>
 #include <limits>
 
-namespace platform {
+namespace platform
+{
 
-class Uart final {
+class Uart final
+{
 public:
   static constexpr std::size_t MaximumTransmitSize{UART_PORT_MAX_TRANSMIT_SIZE};
 
-  enum class Endpoint : std::uint8_t {
+  enum class Endpoint : std::uint8_t
+  {
     RemoteReceiver = UART_PORT_ENDPOINT_REMOTE_RECEIVER,
     DebugConsole = UART_PORT_ENDPOINT_DEBUG_CONSOLE
   };
 
-  enum class ReceiveResult : std::uint8_t {
+  enum class ReceiveResult : std::uint8_t
+  {
     Received = UART_PORT_RECEIVE_RECEIVED,
     Empty = UART_PORT_RECEIVE_EMPTY,
     NotReady = UART_PORT_RECEIVE_NOT_READY,
@@ -26,7 +30,8 @@ public:
     Error = UART_PORT_RECEIVE_ERROR
   };
 
-  enum class TransmitResult : std::uint8_t {
+  enum class TransmitResult : std::uint8_t
+  {
     Started = UART_PORT_TRANSMIT_STARTED,
     Busy = UART_PORT_TRANSMIT_BUSY,
     NotReady = UART_PORT_TRANSMIT_NOT_READY,
@@ -38,7 +43,8 @@ public:
   using ReceiveNotification = UartPort_ReceiveNotification;
   using TransmitNotification = UartPort_TransmitNotification;
 
-  struct Statistics final {
+  struct Statistics final
+  {
     std::uint32_t receivedByteCount{0U};
     std::uint32_t droppedByteCount{0U};
     std::uint32_t errorEventCount{0U};
@@ -57,7 +63,8 @@ public:
    * @param endpoint 要查询的逻辑端点。
    * @return 端点有效并可接收数据时返回 true。
    */
-  [[nodiscard]] static bool IsReady(Endpoint endpoint) noexcept {
+  [[nodiscard]] static bool IsReady(Endpoint endpoint) noexcept
+  {
     return UartPort_IsReady(ToPortEndpoint(endpoint));
   }
 
@@ -72,10 +79,9 @@ public:
    * @note MAY 能力：Port 可能返回 false（未注册），业务应回退轮询 TryRead。
    */
   [[nodiscard]] static bool
-  SetReceiveNotification(Endpoint endpoint, ReceiveNotification notification,
-                         void *context) noexcept {
-    return UartPort_SetReceiveNotification(ToPortEndpoint(endpoint),
-                                           notification, context);
+  SetReceiveNotification(Endpoint endpoint, ReceiveNotification notification, void *context) noexcept
+  {
+    return UartPort_SetReceiveNotification(ToPortEndpoint(endpoint), notification, context);
   }
 
   /**
@@ -89,10 +95,9 @@ public:
    * @note MAY 能力：Port 可能返回 false（未注册），业务应回退为轮询发送状态。
    */
   [[nodiscard]] static bool
-  SetTransmitNotification(Endpoint endpoint, TransmitNotification notification,
-                          void *context) noexcept {
-    return UartPort_SetTransmitNotification(ToPortEndpoint(endpoint),
-                                            notification, context);
+  SetTransmitNotification(Endpoint endpoint, TransmitNotification notification, void *context) noexcept
+  {
+    return UartPort_SetTransmitNotification(ToPortEndpoint(endpoint), notification, context);
   }
 
   /**
@@ -104,19 +109,18 @@ public:
    * @return 返回读取成功、队列为空、端点未就绪或参数错误等结果。
    * @note 每个端点只允许一个任务作为软件队列消费者。
    */
-  [[nodiscard]] static ReceiveResult TryRead(Endpoint endpoint,
-                                             std::uint8_t *data,
-                                             std::size_t dataCapacity,
-                                             std::size_t &length) noexcept {
+  [[nodiscard]] static ReceiveResult
+  TryRead(Endpoint endpoint, std::uint8_t *data, std::size_t dataCapacity, std::size_t &length) noexcept
+  {
     length = 0U;
-    if (dataCapacity > std::numeric_limits<std::uint32_t>::max()) {
+    if (dataCapacity > std::numeric_limits<std::uint32_t>::max())
+    {
       return ReceiveResult::InvalidArgument;
     }
 
     std::uint32_t receivedLength = 0U;
-    const ReceiveResult result = ToReceiveResult(UartPort_TryRead(
-        ToPortEndpoint(endpoint), data,
-        static_cast<std::uint32_t>(dataCapacity), &receivedLength));
+    const ReceiveResult result = ToReceiveResult(
+        UartPort_TryRead(ToPortEndpoint(endpoint), data, static_cast<std::uint32_t>(dataCapacity), &receivedLength));
     length = receivedLength;
     return result;
   }
@@ -131,8 +135,8 @@ public:
    */
   template <std::size_t Size>
   [[nodiscard]] static ReceiveResult
-  TryRead(Endpoint endpoint, std::array<std::uint8_t, Size> &data,
-          std::size_t &length) noexcept {
+  TryRead(Endpoint endpoint, std::array<std::uint8_t, Size> &data, std::size_t &length) noexcept
+  {
     return TryRead(endpoint, data.data(), data.size(), length);
   }
 
@@ -145,15 +149,14 @@ public:
    * @note
    * 仅供任务上下文调用，每个端点只允许一帧在途；忙时应等待发送通知后重试。
    */
-  [[nodiscard]] static TransmitResult TryWrite(Endpoint endpoint,
-                                               const std::uint8_t *data,
-                                               std::size_t length) noexcept {
-    if (length > std::numeric_limits<std::uint32_t>::max()) {
+  [[nodiscard]] static TransmitResult TryWrite(Endpoint endpoint, const std::uint8_t *data, std::size_t length) noexcept
+  {
+    if (length > std::numeric_limits<std::uint32_t>::max())
+    {
       return TransmitResult::InvalidArgument;
     }
 
-    return ToTransmitResult(UartPort_TryWrite(
-        ToPortEndpoint(endpoint), data, static_cast<std::uint32_t>(length)));
+    return ToTransmitResult(UartPort_TryWrite(ToPortEndpoint(endpoint), data, static_cast<std::uint32_t>(length)));
   }
 
   /**
@@ -164,9 +167,8 @@ public:
    * @return 返回已启动、忙、未就绪、不支持或参数错误等结果。
    */
   template <std::size_t Size>
-  [[nodiscard]] static TransmitResult
-  TryWrite(Endpoint endpoint,
-           const std::array<std::uint8_t, Size> &data) noexcept {
+  [[nodiscard]] static TransmitResult TryWrite(Endpoint endpoint, const std::array<std::uint8_t, Size> &data) noexcept
+  {
     return TryWrite(endpoint, data.data(), data.size());
   }
 
@@ -177,10 +179,11 @@ public:
    * @return 参数有效并成功取得统计时返回 true。
    * @note MAY 能力：Port 可能返回 false（未实现），业务应按全 0 统计处理。
    */
-  [[nodiscard]] static bool GetStatistics(Endpoint endpoint,
-                                          Statistics &statistics) noexcept {
+  [[nodiscard]] static bool GetStatistics(Endpoint endpoint, Statistics &statistics) noexcept
+  {
     UartPort_Statistics portStatistics{};
-    if (!UartPort_GetStatistics(ToPortEndpoint(endpoint), &portStatistics)) {
+    if (!UartPort_GetStatistics(ToPortEndpoint(endpoint), &portStatistics))
+    {
       return false;
     }
 
@@ -199,8 +202,8 @@ private:
    * @param endpoint C++ 逻辑端点。
    * @return 对应的 C ABI 端点值。
    */
-  [[nodiscard]] static constexpr UartPort_Endpoint
-  ToPortEndpoint(Endpoint endpoint) noexcept {
+  [[nodiscard]] static constexpr UartPort_Endpoint ToPortEndpoint(Endpoint endpoint) noexcept
+  {
     return static_cast<UartPort_Endpoint>(endpoint);
   }
 
@@ -209,11 +212,9 @@ private:
    * @param result C ABI 接收结果。
    * @return 对应的 C++ 接收结果，未知值统一转换为 ReceiveResult::Error。
    */
-  [[nodiscard]] static constexpr ReceiveResult
-  ToReceiveResult(UartPort_ReceiveResult result) noexcept {
-    return result <= UART_PORT_RECEIVE_ERROR
-               ? static_cast<ReceiveResult>(result)
-               : ReceiveResult::Error;
+  [[nodiscard]] static constexpr ReceiveResult ToReceiveResult(UartPort_ReceiveResult result) noexcept
+  {
+    return result <= UART_PORT_RECEIVE_ERROR ? static_cast<ReceiveResult>(result) : ReceiveResult::Error;
   }
 
   /**
@@ -221,11 +222,9 @@ private:
    * @param result C ABI 发送结果。
    * @return 对应的 C++ 发送结果，未知值统一转换为 TransmitResult::Error。
    */
-  [[nodiscard]] static constexpr TransmitResult
-  ToTransmitResult(UartPort_TransmitResult result) noexcept {
-    return result <= UART_PORT_TRANSMIT_ERROR
-               ? static_cast<TransmitResult>(result)
-               : TransmitResult::Error;
+  [[nodiscard]] static constexpr TransmitResult ToTransmitResult(UartPort_TransmitResult result) noexcept
+  {
+    return result <= UART_PORT_TRANSMIT_ERROR ? static_cast<TransmitResult>(result) : TransmitResult::Error;
   }
 };
 

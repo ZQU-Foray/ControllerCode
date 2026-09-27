@@ -5,19 +5,23 @@
 #include <cstdint>
 #include <limits>
 
-namespace application {
+namespace application
+{
 #if defined(IMU_ENABLE_DIAGNOSTICS)
-namespace {
+namespace
+{
 constexpr std::uint32_t CaptureSamples{20000U};
 constexpr std::uint32_t StoredSamples{1024U};
-struct RawRecord {
+struct RawRecord
+{
   std::uint32_t tick;
   std::uint32_t sequence;
   std::int16_t xyz[3];
   std::uint16_t reserved;
 };
 static_assert(sizeof(RawRecord) == 16U);
-struct ChannelCapture {
+struct ChannelCapture
+{
   std::uint32_t count{0U}, readGaps{0U}, drdyGaps{0U};
   std::uint32_t lastRead{0U}, lastDrdy{0U}, lastTick{0U};
   std::uint32_t coalescedStart{0U}, coalescedEnd{0U};
@@ -28,7 +32,8 @@ struct ChannelCapture {
   std::uint64_t elapsedTicks{0U}, sumStartTicks{0U}, sumCompleteTicks{0U};
 };
 static_assert(sizeof(ChannelCapture) == 96U);
-struct Capture {
+struct Capture
+{
   std::uint32_t version{2U};
   std::uint32_t state{0U}; // 0：等待温度；1：记录中；2：已冻结
   std::uint32_t count{0U};
@@ -66,13 +71,15 @@ bool temperatureQualified{false};
 // 显式武装的只读热特性采集。一块约一秒；本报告的任何数值
 // 都不会回馈进 IMU 或估计器。
 constexpr std::uint32_t ThermalProfileBlocks{360U};
-struct ProfileMoments {
+struct ProfileMoments
+{
   std::uint32_t count, reserved;
   std::int64_t sum[3];
   std::uint64_t sumSquared[3];
 };
 static_assert(sizeof(ProfileMoments) == 56U);
-struct ThermalProfileBlock {
+struct ThermalProfileBlock
+{
   std::uint32_t firstTick, lastTick;
   float temperatureMin, temperatureMax;
   std::uint32_t temperatureReadsStart, temperatureReadsEnd;
@@ -80,7 +87,8 @@ struct ThermalProfileBlock {
   ProfileMoments accelerometer, gyroscope;
 };
 static_assert(sizeof(ThermalProfileBlock) == 144U);
-struct ThermalProfile {
+struct ThermalProfile
+{
   std::uint32_t version;
   std::uint32_t state; // 0 空闲，1 记录中，2 已冻结
   std::uint32_t completedBlocks;
@@ -96,26 +104,28 @@ struct ThermalProfile {
   ThermalProfileBlock blocks[ThermalProfileBlocks];
 };
 static_assert(sizeof(ThermalProfile) == 51920U);
-// 现有链接脚本已提供大块 AXI-SRAM NOLOAD 段。让该诊断
-// 存档避开稀缺的 DTCM；尽管段名是通用名，它仅由 CPU 访问，
-// 从不交给 DMA 外设。
-__attribute__((section(".dma_buffer"),
-               aligned(32))) volatile ThermalProfile gyroThermalProfile{};
+// 现有链接脚本只提供 NOLOAD 的 AXI-SRAM（RAM_D1）段 `.dma_buffer*`，本诊断存档
+// 由 CPU 独占、从不交给 DMA，因此单独用一个子段名 `.dma_buffer.imu_diag`
+// 与真正的 DMA 缓冲区分开，同时仍落在 RAM_D1（DTCM 放不下这 52 KB）。
+__attribute__((section(".dma_buffer.imu_diag"), aligned(32))) volatile ThermalProfile gyroThermalProfile{};
 // 调试器邮箱：复位后写 1 一次即开始新一轮采集。
 volatile std::uint32_t gyroThermalProfileRequest{0U};
 
-void ResetMoments(volatile ProfileMoments &moments) {
+void ResetMoments(volatile ProfileMoments &moments)
+{
   moments.count = moments.reserved = 0U;
-  for (unsigned i = 0; i < 3; ++i) {
+  for (unsigned i = 0; i < 3; ++i)
+  {
     moments.sum[i] = 0;
     moments.sumSquared[i] = 0U;
   }
 }
 
-void AddMoments(volatile ProfileMoments &moments,
-                const device::Bmi088SampleRecord &record) {
+void AddMoments(volatile ProfileMoments &moments, const device::Bmi088SampleRecord &record)
+{
   ++moments.count;
-  for (unsigned i = 0; i < 3; ++i) {
+  for (unsigned i = 0; i < 3; ++i)
+  {
     const auto value = static_cast<std::int32_t>(record.xyz[i]);
     moments.sum[i] += value;
     moments.sumSquared[i] += static_cast<std::uint32_t>(value * value);
@@ -124,7 +134,9 @@ void AddMoments(volatile ProfileMoments &moments,
 
 void ResetThermalBlock(volatile ThermalProfileBlock &block,
                        const device::Bmi088SampleRecord &record,
-                       float temperature, std::uint32_t temperatureReads) {
+                       float temperature,
+                       std::uint32_t temperatureReads)
+{
   block.firstTick = block.lastTick = record.drdyTick;
   block.temperatureMin = block.temperatureMax = temperature;
   block.temperatureReadsStart = block.temperatureReadsEnd = temperatureReads;
@@ -133,73 +145,68 @@ void ResetThermalBlock(volatile ThermalProfileBlock &block,
   ResetMoments(block.gyroscope);
 }
 
-void FreezeThermalProfile(const device::Bmi088 &imu) {
+void FreezeThermalProfile(const device::Bmi088 &imu)
+{
   gyroThermalProfile.temperatureReadsEnd = imu.GetTemperature().GetReadCount();
   gyroThermalProfile.gyroErrorsEnd = imu.GetGyroscope().GetErrorCount();
   gyroThermalProfile.accelErrorsEnd = imu.GetAccelerometer().GetErrorCount();
   gyroThermalProfile.gyroOverflowEnd = imu.GetGyroscopeQueue().OverflowCount();
-  gyroThermalProfile.accelOverflowEnd =
-      imu.GetAccelerometerQueue().OverflowCount();
+  gyroThermalProfile.accelOverflowEnd = imu.GetAccelerometerQueue().OverflowCount();
   gyroThermalProfile.gyroCoalescedEnd = imu.GetGyroscopeCoalescedEventCount();
-  gyroThermalProfile.accelCoalescedEnd =
-      imu.GetAccelerometerCoalescedEventCount();
+  gyroThermalProfile.accelCoalescedEnd = imu.GetAccelerometerCoalescedEventCount();
   gyroThermalProfile.state = 2U;
 }
 
 void ObserveThermalProfile(const device::Bmi088 &imu,
                            const device::Bmi088SampleRecord &record,
-                           bool gyroscope, float temperature) {
-  if (gyroThermalProfileRequest == 1U) {
+                           bool gyroscope,
+                           float temperature)
+{
+  if (gyroThermalProfileRequest == 1U)
+  {
     gyroThermalProfileRequest = 0U;
     gyroThermalProfile.version = 3U;
     gyroThermalProfile.state = 1U;
     gyroThermalProfile.completedBlocks = 0U;
     gyroThermalProfile.targetBlocks = ThermalProfileBlocks;
     gyroThermalProfile.tickHz = platform::Time::TickFrequencyHz();
-    gyroThermalProfile.temperatureReadsStart =
-        gyroThermalProfile.temperatureReadsEnd =
-            imu.GetTemperature().GetReadCount();
-    gyroThermalProfile.gyroErrorsStart = gyroThermalProfile.gyroErrorsEnd =
-        imu.GetGyroscope().GetErrorCount();
-    gyroThermalProfile.accelErrorsStart = gyroThermalProfile.accelErrorsEnd =
-        imu.GetAccelerometer().GetErrorCount();
-    gyroThermalProfile.gyroOverflowStart = gyroThermalProfile.gyroOverflowEnd =
-        imu.GetGyroscopeQueue().OverflowCount();
-    gyroThermalProfile.accelOverflowStart =
-        gyroThermalProfile.accelOverflowEnd =
-            imu.GetAccelerometerQueue().OverflowCount();
-    gyroThermalProfile.gyroCoalescedStart =
-        gyroThermalProfile.gyroCoalescedEnd =
-            imu.GetGyroscopeCoalescedEventCount();
-    gyroThermalProfile.accelCoalescedStart =
-        gyroThermalProfile.accelCoalescedEnd =
-            imu.GetAccelerometerCoalescedEventCount();
-    if (gyroThermalProfile.tickHz == 0U || !std::isfinite(temperature)) {
+    gyroThermalProfile.temperatureReadsStart = gyroThermalProfile.temperatureReadsEnd =
+        imu.GetTemperature().GetReadCount();
+    gyroThermalProfile.gyroErrorsStart = gyroThermalProfile.gyroErrorsEnd = imu.GetGyroscope().GetErrorCount();
+    gyroThermalProfile.accelErrorsStart = gyroThermalProfile.accelErrorsEnd = imu.GetAccelerometer().GetErrorCount();
+    gyroThermalProfile.gyroOverflowStart = gyroThermalProfile.gyroOverflowEnd = imu.GetGyroscopeQueue().OverflowCount();
+    gyroThermalProfile.accelOverflowStart = gyroThermalProfile.accelOverflowEnd =
+        imu.GetAccelerometerQueue().OverflowCount();
+    gyroThermalProfile.gyroCoalescedStart = gyroThermalProfile.gyroCoalescedEnd = imu.GetGyroscopeCoalescedEventCount();
+    gyroThermalProfile.accelCoalescedStart = gyroThermalProfile.accelCoalescedEnd =
+        imu.GetAccelerometerCoalescedEventCount();
+    if (gyroThermalProfile.tickHz == 0U || !std::isfinite(temperature))
+    {
       gyroThermalProfile.state = 0U;
       return;
     }
-    ResetThermalBlock(gyroThermalProfile.blocks[0], record, temperature,
-                      imu.GetTemperature().GetReadCount());
+    ResetThermalBlock(gyroThermalProfile.blocks[0], record, temperature, imu.GetTemperature().GetReadCount());
   }
   if (gyroThermalProfile.state != 1U || !std::isfinite(temperature))
     return;
   auto index = gyroThermalProfile.completedBlocks;
-  if (index >= gyroThermalProfile.targetBlocks) {
+  if (index >= gyroThermalProfile.targetBlocks)
+  {
     FreezeThermalProfile(imu);
     return;
   }
   auto &block = gyroThermalProfile.blocks[index];
-  if (static_cast<std::uint32_t>(record.drdyTick - block.firstTick) >=
-      gyroThermalProfile.tickHz) {
+  if (static_cast<std::uint32_t>(record.drdyTick - block.firstTick) >= gyroThermalProfile.tickHz)
+  {
     block.temperatureReadsEnd = imu.GetTemperature().GetReadCount();
     ++gyroThermalProfile.completedBlocks;
     index = gyroThermalProfile.completedBlocks;
-    if (index >= gyroThermalProfile.targetBlocks) {
+    if (index >= gyroThermalProfile.targetBlocks)
+    {
       FreezeThermalProfile(imu);
       return;
     }
-    ResetThermalBlock(gyroThermalProfile.blocks[index], record, temperature,
-                      imu.GetTemperature().GetReadCount());
+    ResetThermalBlock(gyroThermalProfile.blocks[index], record, temperature, imu.GetTemperature().GetReadCount());
   }
   auto &current = gyroThermalProfile.blocks[index];
   current.lastTick = record.drdyTick;
@@ -212,20 +219,20 @@ void ObserveThermalProfile(const device::Bmi088 &imu,
   AddMoments(gyroscope ? current.gyroscope : current.accelerometer, record);
 }
 
-void ObserveChannel(const device::Bmi088 &imu,
-                    const device::Bmi088SampleRecord &record, bool gyro) {
+void ObserveChannel(const device::Bmi088 &imu, const device::Bmi088SampleRecord &record, bool gyro)
+{
   auto &c = gyroCapture.channels[gyro ? 1 : 0];
-  const auto &queue =
-      gyro ? imu.GetGyroscopeQueue() : imu.GetAccelerometerQueue();
-  const auto coalesced = gyro ? imu.GetGyroscopeCoalescedEventCount()
-                              : imu.GetAccelerometerCoalescedEventCount();
-  const auto errors = gyro ? imu.GetGyroscope().GetErrorCount()
-                           : imu.GetAccelerometer().GetErrorCount();
-  if (c.count == 0U) {
+  const auto &queue = gyro ? imu.GetGyroscopeQueue() : imu.GetAccelerometerQueue();
+  const auto coalesced = gyro ? imu.GetGyroscopeCoalescedEventCount() : imu.GetAccelerometerCoalescedEventCount();
+  const auto errors = gyro ? imu.GetGyroscope().GetErrorCount() : imu.GetAccelerometer().GetErrorCount();
+  if (c.count == 0U)
+  {
     c.coalescedStart = coalesced;
     c.errorsStart = errors;
     c.overflowStart = queue.OverflowCount();
-  } else {
+  }
+  else
+  {
     c.readGaps += record.sequence - c.lastRead - 1U;
     c.drdyGaps += record.drdySequence - c.lastDrdy - 1U;
     c.elapsedTicks += static_cast<std::uint32_t>(record.drdyTick - c.lastTick);
@@ -239,8 +246,7 @@ void ObserveChannel(const device::Bmi088 &imu,
   c.highWater = queue.HighWater();
   if ((record.flags & device::Bmi088SampleRecord::LateStart) != 0U)
     ++c.lateStarts;
-  if ((record.flags & device::Bmi088SampleRecord::NewerEventBeforeCompletion) !=
-      0U)
+  if ((record.flags & device::Bmi088SampleRecord::NewerEventBeforeCompletion) != 0U)
     ++c.ambiguous;
   const auto start = record.startTick - record.drdyTick;
   const auto complete = record.completedTick - record.drdyTick;
@@ -259,16 +265,19 @@ void ObserveChannel(const device::Bmi088 &imu,
 
 void ImuDiagnostics::Observe(const device::Bmi088 &imu,
                              const device::Bmi088SampleRecord &record,
-                             bool gyroscope) noexcept {
+                             bool gyroscope) noexcept
+{
   const auto request = gyroCaptureRequest;
-  if (request == 1U || request == 2U) {
+  if (request == 1U || request == 2U)
+  {
     gyroCaptureRequest = 0U;
     gyroCapture.count = gyroCapture.stored = 0U;
     gyroCapture.sequenceGaps = 0U;
     gyroCapture.elapsedTicks = 0U;
     gyroCapture.minInterval = UINT32_MAX;
     gyroCapture.maxInterval = 0U;
-    for (auto &c : gyroCapture.channels) {
+    for (auto &c : gyroCapture.channels)
+    {
       c.count = c.readGaps = c.drdyGaps = 0U;
       c.lastRead = c.lastDrdy = c.lastTick = 0U;
       c.coalescedStart = c.coalescedEnd = 0U;
@@ -278,7 +287,8 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
       c.maxStartTicks = c.maxCompleteTicks = c.maxHarvestTicks = 0U;
       c.elapsedTicks = c.sumStartTicks = c.sumCompleteTicks = 0U;
     }
-    for (unsigned i = 0; i < 3; ++i) {
+    for (unsigned i = 0; i < 3; ++i)
+    {
       gyroCapture.sum[i] = 0;
       gyroCapture.sumSquared[i] = 0;
       gyroCapture.minimum[i] = INT16_MAX;
@@ -295,14 +305,16 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
   ObserveThermalProfile(imu, record, gyroscope, celsius);
   if (gyroCapture.state == 2U)
     return;
-  if (gyroCapture.state == 0U) {
+  if (gyroCapture.state == 0U)
+  {
     // 温度资格与服务点保持一致，否则本诊断在服务点变更后永远不会就绪。
-    if (!std::isfinite(celsius) ||
-        std::fabs(celsius - device::Bmi088Heater::DefaultTargetCelsius) > 0.5F) {
+    if (!std::isfinite(celsius) || std::fabs(celsius - device::Bmi088Heater::DefaultTargetCelsius) > 0.5F)
+    {
       temperatureQualified = false;
       return;
     }
-    if (!temperatureQualified) {
+    if (!temperatureQualified)
+    {
       temperatureSince = platform::Time::NowTicks();
       temperatureQualified = true;
     }
@@ -319,13 +331,16 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
   const auto tick = record.drdyTick; // MCU 的 DRDY 观测时刻，并非传感器内部时刻
   const auto &xyz = record.xyz;
   const auto count = gyroCapture.count;
-  if (count == 0U) {
+  if (count == 0U)
+  {
     gyroCapture.firstTick = tick;
     gyroCapture.temperatureStart = celsius;
     gyroCapture.drdyStart = imu.GetGyroscopeDataReadyCount();
     gyroCapture.coalescedStart = imu.GetGyroscopeCoalescedEventCount();
     gyroCapture.errorsStart = gyro.GetErrorCount();
-  } else {
+  }
+  else
+  {
     const auto interval = tick - gyroCapture.lastTick;
     gyroCapture.elapsedTicks += interval;
     if (interval < gyroCapture.minInterval)
@@ -334,7 +349,8 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
       gyroCapture.maxInterval = interval;
     gyroCapture.sequenceGaps += sequence - gyroCapture.lastSequence - 1U;
   }
-  for (unsigned i = 0; i < 3; ++i) {
+  for (unsigned i = 0; i < 3; ++i)
+  {
     const std::int64_t value = xyz[i];
     gyroCapture.sum[i] += value;
     gyroCapture.sumSquared[i] += static_cast<std::uint64_t>(value * value);
@@ -343,7 +359,8 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
     if (xyz[i] > gyroCapture.maximum[i])
       gyroCapture.maximum[i] = xyz[i];
   }
-  if (count < StoredSamples) {
+  if (count < StoredSamples)
+  {
     gyroCapture.records[count].tick = tick;
     gyroCapture.records[count].sequence = sequence;
     for (unsigned i = 0; i < 3; ++i)
@@ -354,7 +371,8 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
   gyroCapture.lastTick = tick;
   gyroCapture.lastSequence = sequence;
   gyroCapture.count = count + 1U;
-  if (gyroCapture.count == CaptureSamples) {
+  if (gyroCapture.count == CaptureSamples)
+  {
     gyroCapture.temperatureEnd = celsius;
     gyroCapture.drdyEnd = imu.GetGyroscopeDataReadyCount();
     gyroCapture.coalescedEnd = imu.GetGyroscopeCoalescedEventCount();
@@ -363,8 +381,6 @@ void ImuDiagnostics::Observe(const device::Bmi088 &imu,
   }
 }
 #else
-void ImuDiagnostics::Observe(const device::Bmi088 &,
-                             const device::Bmi088SampleRecord &,
-                             bool) noexcept {}
+void ImuDiagnostics::Observe(const device::Bmi088 &, const device::Bmi088SampleRecord &, bool) noexcept {}
 #endif
 } // namespace application

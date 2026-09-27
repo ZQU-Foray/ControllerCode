@@ -93,6 +93,8 @@ file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Application/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Algorithm/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Algorithm/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Component/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Component/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Device/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Device/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../Libraries/Protocol/*.c

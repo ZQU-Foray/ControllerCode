@@ -7,7 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace device {
+namespace device
+{
 
 /**
  * @brief BMI088 陀螺仪子设备驱动。
@@ -18,7 +19,8 @@ namespace device {
  *       （±2000 °/s），并启用高有效推挽 INT3 DRDY；配置链完成后
  *       逐项读回校验（带宽保留位按掩码忽略），失败重试后进入 Error。
  */
-class Bmi088Gyro final {
+class Bmi088Gyro final
+{
 public:
   static constexpr std::uint8_t ExpectedChipId{0x0FU};
 
@@ -42,22 +44,26 @@ public:
 #ifndef BMI088_GYRO_BANDWIDTH_REGISTER
 #define BMI088_GYRO_BANDWIDTH_REGISTER 0x00U
 #endif
-  static constexpr std::uint8_t BandwidthRegisterValue{
-      BMI088_GYRO_BANDWIDTH_REGISTER};
+  static constexpr std::uint8_t BandwidthRegisterValue{BMI088_GYRO_BANDWIDTH_REGISTER};
   static_assert(BandwidthRegisterValue == GyroBandwidth2000Hz532Hz ||
                 BandwidthRegisterValue == GyroBandwidth1000Hz116Hz);
   static constexpr float DpsPerLsb{
       (RangeRegisterValue == GyroRange1000Dps
            ? 1000.0F
-           : (RangeRegisterValue == GyroRange500Dps
-                  ? 500.0F
-                  : (RangeRegisterValue == GyroRange250Dps ? 250.0F
-                                                           : 2000.0F))) /
+           : (RangeRegisterValue == GyroRange500Dps ? 500.0F
+                                                    : (RangeRegisterValue == GyroRange250Dps ? 250.0F : 2000.0F))) /
       32768.0F};
 
-  enum class State : std::uint8_t { Shutdown, Initializing, Ready, Error };
+  enum class State : std::uint8_t
+  {
+    Shutdown,
+    Initializing,
+    Ready,
+    Error
+  };
 
-  struct Sample final {
+  struct Sample final
+  {
     std::int16_t xAxis{0};
     std::int16_t yAxis{0};
     std::int16_t zAxis{0};
@@ -84,11 +90,12 @@ public:
   // 仅当本次调用启动了新传输（而非既有传输）时为 true。
   bool TryStart() noexcept;
 
-  void SetCompletionNotification(platform::Spi::CompletionNotification callback,
-                                 void *context) noexcept {
+  void SetCompletionNotification(platform::Spi::CompletionNotification callback, void *context) noexcept
+  {
     completion_.SetNotification(callback, context);
   }
-  [[nodiscard]] std::uint32_t GetCompletionTick() const noexcept {
+  [[nodiscard]] std::uint32_t GetCompletionTick() const noexcept
+  {
     return completion_.CompletedTick();
   }
 
@@ -96,17 +103,24 @@ public:
    * @brief 查询初始化与数据链路是否已完成并可提供样本。
    * @return 配置链验证通过且处于周期读取状态时返回 true。
    */
-  [[nodiscard]] bool IsReady() const noexcept { return state_ == State::Ready; }
+  [[nodiscard]] bool IsReady() const noexcept
+  {
+    return state_ == State::Ready;
+  }
 
   /**
    * @brief 查询本子设备是否有尚未收割终态的异步事务。
    * @return 存在在途事务时返回 true，供协调器进行总线避让。
    */
-  [[nodiscard]] bool HasPendingTransfer() const noexcept {
+  [[nodiscard]] bool HasPendingTransfer() const noexcept
+  {
     return transferActive_;
   }
 
-  [[nodiscard]] State GetState() const noexcept { return state_; }
+  [[nodiscard]] State GetState() const noexcept
+  {
+    return state_;
+  }
 
   /**
    * @brief 获取最近一次成功读取的原始三轴角速度计数。
@@ -115,11 +129,13 @@ public:
    */
   [[nodiscard]] bool TryGetSample(Sample &sample) const noexcept;
 
-  [[nodiscard]] std::uint32_t GetReadCount() const noexcept {
+  [[nodiscard]] std::uint32_t GetReadCount() const noexcept
+  {
     return readCount_;
   }
 
-  [[nodiscard]] std::uint32_t GetErrorCount() const noexcept {
+  [[nodiscard]] std::uint32_t GetErrorCount() const noexcept
+  {
     return errorCount_;
   }
 
@@ -128,12 +144,14 @@ public:
    * @param raw 陀螺仪原始计数值。
    * @return 按 RangeRegisterValue 所选量程换算的角速度值。
    */
-  [[nodiscard]] static float ToDps(std::int16_t raw) noexcept {
+  [[nodiscard]] static float ToDps(std::int16_t raw) noexcept
+  {
     return static_cast<float>(raw) * DpsPerLsb;
   }
 
 private:
-  enum class Step : std::uint8_t {
+  enum class Step : std::uint8_t
+  {
     CheckChipId,
     WriteRange,
     WriteBandwidth,

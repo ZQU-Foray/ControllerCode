@@ -1,8 +1,10 @@
 #include "Libraries/Device/bmi088/Bmi088Gyro.hpp"
 
-namespace device {
+namespace device
+{
 
-namespace {
+namespace
+{
 
 constexpr std::uint8_t ReadFlag{0x80U};
 
@@ -15,7 +17,12 @@ constexpr std::uint8_t InterruptIoConfigurationRegister{0x16U};
 constexpr std::uint8_t InterruptMapRegister{0x18U};
 
 constexpr std::uint8_t EnableDataReadyInterrupt{0x80U};
-constexpr std::uint8_t Interrupt3ActiveHighPushPull{0x0CU};
+// INT3_INT4_IO_CONF(0x16)：bit0 int3_lvl（1＝高有效）、bit1 int3_od、
+// bit2 int4_lvl、bit3 int4_od。MCU 侧 EXTI 是上升沿触发，INT3 必须配成
+// 高有效推挽：0x01。旧值 0x0C 实际把 INT3 配成低有效推挽，并把未使用的
+// INT4 配成高有效开漏（板级无上拉，引脚永远上不去）；两者都会让 DRDY 边沿
+// 对振动与漏电敏感，进而影响采集时序与合并计数。
+constexpr std::uint8_t Interrupt3ActiveHighPushPull{0x01U};
 constexpr std::uint8_t MapDataReadyToInterrupt3{0x01U};
 
 constexpr std::uint32_t ConfigSettleMs{1U};
@@ -23,7 +30,8 @@ constexpr std::uint32_t ConfigVerifySettleMs{1U};
 
 } // namespace
 
-void Bmi088Gyro::Init() noexcept {
+void Bmi088Gyro::Init() noexcept
+{
   state_ = State::Initializing;
   step_ = Step::CheckChipId;
   stepTick_ = platform::Time::NowTicks();
@@ -38,16 +46,20 @@ void Bmi088Gyro::Init() noexcept {
   transmitBuffer_.fill(0U);
 }
 
-void Bmi088Gyro::Harvest() noexcept {
-  if (state_ != State::Initializing && state_ != State::Ready) {
+void Bmi088Gyro::Harvest() noexcept
+{
+  if (state_ != State::Initializing && state_ != State::Ready)
+  {
     return;
   }
 
-  if (!transferActive_) {
+  if (!transferActive_)
+  {
     return;
   }
 
-  switch (platform::Spi::GetAsyncResult(platform::Spi::Device::ImuGyroscope)) {
+  switch (platform::Spi::GetAsyncResult(platform::Spi::Device::ImuGyroscope))
+  {
   case platform::Spi::Result::Busy:
   case platform::Spi::Result::Started:
     return;
@@ -64,12 +76,15 @@ void Bmi088Gyro::Harvest() noexcept {
   }
 }
 
-bool Bmi088Gyro::TryStart() noexcept {
-  if (state_ != State::Initializing && state_ != State::Ready) {
+bool Bmi088Gyro::TryStart() noexcept
+{
+  if (state_ != State::Initializing && state_ != State::Ready)
+  {
     return false;
   }
 
-  if (transferActive_ || !WaitElapsed()) {
+  if (transferActive_ || !WaitElapsed())
+  {
     return false;
   }
 
@@ -77,8 +92,10 @@ bool Bmi088Gyro::TryStart() noexcept {
   return transferActive_;
 }
 
-bool Bmi088Gyro::TryGetSample(Sample &sample) const noexcept {
-  if (!sampleValid_) {
+bool Bmi088Gyro::TryGetSample(Sample &sample) const noexcept
+{
+  if (!sampleValid_)
+  {
     return false;
   }
 
@@ -86,16 +103,18 @@ bool Bmi088Gyro::TryGetSample(Sample &sample) const noexcept {
   return true;
 }
 
-bool Bmi088Gyro::WaitElapsed() const noexcept {
-  return stepWaitMs_ == 0U ||
-         platform::Time::HasElapsedMs(stepTick_, stepWaitMs_);
+bool Bmi088Gyro::WaitElapsed() const noexcept
+{
+  return stepWaitMs_ == 0U || platform::Time::HasElapsedMs(stepTick_, stepWaitMs_);
 }
 
-void Bmi088Gyro::BeginStep() noexcept {
+void Bmi088Gyro::BeginStep() noexcept
+{
   std::size_t length = 0U;
 
   transmitBuffer_.fill(0U);
-  switch (step_) {
+  switch (step_)
+  {
   case Step::CheckChipId:
     transmitBuffer_[0] = static_cast<std::uint8_t>(ReadFlag | ChipIdRegister);
     length = 2U;
@@ -137,14 +156,12 @@ void Bmi088Gyro::BeginStep() noexcept {
     break;
 
   case Step::VerifyInterruptControlAndIo:
-    transmitBuffer_[0] =
-        static_cast<std::uint8_t>(ReadFlag | InterruptControlRegister);
+    transmitBuffer_[0] = static_cast<std::uint8_t>(ReadFlag | InterruptControlRegister);
     length = 3U;
     break;
 
   case Step::VerifyInterruptMap:
-    transmitBuffer_[0] =
-        static_cast<std::uint8_t>(ReadFlag | InterruptMapRegister);
+    transmitBuffer_[0] = static_cast<std::uint8_t>(ReadFlag | InterruptMapRegister);
     length = 2U;
     break;
 
@@ -154,10 +171,14 @@ void Bmi088Gyro::BeginStep() noexcept {
     break;
   }
 
-  const platform::Spi::Result result = platform::Spi::StartTransferAsync(
-      platform::Spi::Device::ImuGyroscope, transmitBuffer_.data(),
-      receiveBuffer_.data(), length, Bmi088Transfer::Complete, &completion_);
-  switch (result) {
+  const platform::Spi::Result result = platform::Spi::StartTransferAsync(platform::Spi::Device::ImuGyroscope,
+                                                                         transmitBuffer_.data(),
+                                                                         receiveBuffer_.data(),
+                                                                         length,
+                                                                         Bmi088Transfer::Complete,
+                                                                         &completion_);
+  switch (result)
+  {
   case platform::Spi::Result::Started:
     transferActive_ = true;
     return;
@@ -171,12 +192,16 @@ void Bmi088Gyro::BeginStep() noexcept {
   }
 }
 
-void Bmi088Gyro::CompleteStep() noexcept {
-  switch (step_) {
+void Bmi088Gyro::CompleteStep() noexcept
+{
+  switch (step_)
+  {
   case Step::CheckChipId:
-    if (receiveBuffer_[1] != ExpectedChipId) {
+    if (receiveBuffer_[1] != ExpectedChipId)
+    {
       ++chipIdAttempts_;
-      if (chipIdAttempts_ < ChipIdMaxAttempts) {
+      if (chipIdAttempts_ < ChipIdMaxAttempts)
+      {
         Advance(Step::CheckChipId, ChipIdRetryWaitMs);
         return;
       }
@@ -208,12 +233,12 @@ void Bmi088Gyro::CompleteStep() noexcept {
     return;
 
   case Step::VerifyCoreConfiguration:
-    if ((receiveBuffer_[1] & RangeRegisterReadMask) !=
-            (RangeRegisterValue & RangeRegisterReadMask) ||
-        (receiveBuffer_[2] & BandwidthRegisterReadMask) !=
-            (BandwidthRegisterValue & BandwidthRegisterReadMask)) {
+    if ((receiveBuffer_[1] & RangeRegisterReadMask) != (RangeRegisterValue & RangeRegisterReadMask) ||
+        (receiveBuffer_[2] & BandwidthRegisterReadMask) != (BandwidthRegisterValue & BandwidthRegisterReadMask))
+    {
       ++configurationVerifyAttempts_;
-      if (configurationVerifyAttempts_ < ConfigurationVerifyMaxAttempts) {
+      if (configurationVerifyAttempts_ < ConfigurationVerifyMaxAttempts)
+      {
         Advance(Step::VerifyCoreConfiguration, ConfigurationVerifyRetryWaitMs);
         return;
       }
@@ -225,12 +250,12 @@ void Bmi088Gyro::CompleteStep() noexcept {
     return;
 
   case Step::VerifyInterruptControlAndIo:
-    if (receiveBuffer_[1] != EnableDataReadyInterrupt ||
-        receiveBuffer_[2] != Interrupt3ActiveHighPushPull) {
+    if (receiveBuffer_[1] != EnableDataReadyInterrupt || receiveBuffer_[2] != Interrupt3ActiveHighPushPull)
+    {
       ++configurationVerifyAttempts_;
-      if (configurationVerifyAttempts_ < ConfigurationVerifyMaxAttempts) {
-        Advance(Step::VerifyInterruptControlAndIo,
-                ConfigurationVerifyRetryWaitMs);
+      if (configurationVerifyAttempts_ < ConfigurationVerifyMaxAttempts)
+      {
+        Advance(Step::VerifyInterruptControlAndIo, ConfigurationVerifyRetryWaitMs);
         return;
       }
       Fail();
@@ -240,9 +265,11 @@ void Bmi088Gyro::CompleteStep() noexcept {
     return;
 
   case Step::VerifyInterruptMap:
-    if (receiveBuffer_[1] != MapDataReadyToInterrupt3) {
+    if (receiveBuffer_[1] != MapDataReadyToInterrupt3)
+    {
       ++configurationVerifyAttempts_;
-      if (configurationVerifyAttempts_ < ConfigurationVerifyMaxAttempts) {
+      if (configurationVerifyAttempts_ < ConfigurationVerifyMaxAttempts)
+      {
         Advance(Step::VerifyInterruptMap, ConfigurationVerifyRetryWaitMs);
         return;
       }
@@ -257,28 +284,27 @@ void Bmi088Gyro::CompleteStep() noexcept {
     return;
 
   case Step::ReadData:
-    sample_.xAxis = static_cast<std::int16_t>(
-        static_cast<std::uint16_t>(receiveBuffer_[1]) |
-        (static_cast<std::uint16_t>(receiveBuffer_[2]) << 8U));
-    sample_.yAxis = static_cast<std::int16_t>(
-        static_cast<std::uint16_t>(receiveBuffer_[3]) |
-        (static_cast<std::uint16_t>(receiveBuffer_[4]) << 8U));
-    sample_.zAxis = static_cast<std::int16_t>(
-        static_cast<std::uint16_t>(receiveBuffer_[5]) |
-        (static_cast<std::uint16_t>(receiveBuffer_[6]) << 8U));
+    sample_.xAxis = static_cast<std::int16_t>(static_cast<std::uint16_t>(receiveBuffer_[1]) |
+                                              (static_cast<std::uint16_t>(receiveBuffer_[2]) << 8U));
+    sample_.yAxis = static_cast<std::int16_t>(static_cast<std::uint16_t>(receiveBuffer_[3]) |
+                                              (static_cast<std::uint16_t>(receiveBuffer_[4]) << 8U));
+    sample_.zAxis = static_cast<std::int16_t>(static_cast<std::uint16_t>(receiveBuffer_[5]) |
+                                              (static_cast<std::uint16_t>(receiveBuffer_[6]) << 8U));
     sampleValid_ = true;
     ++readCount_;
     return;
   }
 }
 
-void Bmi088Gyro::Advance(Step nextStep, std::uint32_t waitMs) noexcept {
+void Bmi088Gyro::Advance(Step nextStep, std::uint32_t waitMs) noexcept
+{
   step_ = nextStep;
   stepWaitMs_ = waitMs;
   stepTick_ = platform::Time::NowTicks();
 }
 
-void Bmi088Gyro::Fail() noexcept {
+void Bmi088Gyro::Fail() noexcept
+{
   ++errorCount_;
   state_ = State::Error;
   transferActive_ = false;

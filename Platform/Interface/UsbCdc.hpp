@@ -7,14 +7,16 @@
 #include <cstdint>
 #include <limits>
 
-namespace platform {
+namespace platform
+{
 
-class UsbCdc final {
+class UsbCdc final
+{
 public:
-  static constexpr std::size_t MaximumTransmitSize{
-      USB_CDC_PORT_MAX_TRANSMIT_SIZE};
+  static constexpr std::size_t MaximumTransmitSize{USB_CDC_PORT_MAX_TRANSMIT_SIZE};
 
-  enum class ReceiveResult : std::uint8_t {
+  enum class ReceiveResult : std::uint8_t
+  {
     Received = USB_CDC_PORT_RECEIVE_RECEIVED,
     Empty = USB_CDC_PORT_RECEIVE_EMPTY,
     NotReady = USB_CDC_PORT_RECEIVE_NOT_READY,
@@ -22,7 +24,8 @@ public:
     Error = USB_CDC_PORT_RECEIVE_ERROR
   };
 
-  enum class TransmitResult : std::uint8_t {
+  enum class TransmitResult : std::uint8_t
+  {
     Started = USB_CDC_PORT_TRANSMIT_STARTED,
     Busy = USB_CDC_PORT_TRANSMIT_BUSY,
     NotReady = USB_CDC_PORT_TRANSMIT_NOT_READY,
@@ -33,7 +36,8 @@ public:
   using ReceiveNotification = UsbCdcPort_ReceiveNotification;
   using TransmitNotification = UsbCdcPort_TransmitNotification;
 
-  struct Statistics final {
+  struct Statistics final
+  {
     std::uint32_t receivedByteCount{0U};
     std::uint32_t droppedByteCount{0U};
     std::uint32_t receiveErrorCount{0U};
@@ -52,13 +56,17 @@ public:
    * @brief 查询 USB CDC Port 的软件状态是否已经初始化。
    * @return 已完成 Port 初始化时返回 true。
    */
-  [[nodiscard]] static bool IsReady() noexcept { return UsbCdcPort_IsReady(); }
+  [[nodiscard]] static bool IsReady() noexcept
+  {
+    return UsbCdcPort_IsReady();
+  }
 
   /**
    * @brief 查询 USB CDC 是否已由主机完成配置并可进行数据传输。
    * @return Port 已初始化且 USB Device 处于配置状态时返回 true。
    */
-  [[nodiscard]] static bool IsConnected() noexcept {
+  [[nodiscard]] static bool IsConnected() noexcept
+  {
     return UsbCdcPort_IsConnected();
   }
 
@@ -72,9 +80,8 @@ public:
    * 读取。
    * @note MAY 能力：Port 可能返回 false（未注册），业务应回退轮询 TryRead。
    */
-  [[nodiscard]] static bool
-  SetReceiveNotification(ReceiveNotification notification,
-                         void *context) noexcept {
+  [[nodiscard]] static bool SetReceiveNotification(ReceiveNotification notification, void *context) noexcept
+  {
     return UsbCdcPort_SetReceiveNotification(notification, context);
   }
 
@@ -86,9 +93,8 @@ public:
    * @note 通知在 USB 中断上下文执行，只应用于轻量唤醒。
    * @note MAY 能力：Port 可能返回 false（未注册），业务应回退为轮询发送状态。
    */
-  [[nodiscard]] static bool
-  SetTransmitNotification(TransmitNotification notification,
-                          void *context) noexcept {
+  [[nodiscard]] static bool SetTransmitNotification(TransmitNotification notification, void *context) noexcept
+  {
     return UsbCdcPort_SetTransmitNotification(notification, context);
   }
 
@@ -100,17 +106,17 @@ public:
    * @return 返回读取成功、队列为空、Port 未就绪或参数错误等结果。
    * @note 只允许一个任务作为软件队列消费者。
    */
-  [[nodiscard]] static ReceiveResult TryRead(std::uint8_t *data,
-                                             std::size_t dataCapacity,
-                                             std::size_t &length) noexcept {
+  [[nodiscard]] static ReceiveResult TryRead(std::uint8_t *data, std::size_t dataCapacity, std::size_t &length) noexcept
+  {
     length = 0U;
-    if (dataCapacity > std::numeric_limits<std::uint32_t>::max()) {
+    if (dataCapacity > std::numeric_limits<std::uint32_t>::max())
+    {
       return ReceiveResult::InvalidArgument;
     }
 
     std::uint32_t receivedLength = 0U;
-    const ReceiveResult result = ToReceiveResult(UsbCdcPort_TryRead(
-        data, static_cast<std::uint32_t>(dataCapacity), &receivedLength));
+    const ReceiveResult result =
+        ToReceiveResult(UsbCdcPort_TryRead(data, static_cast<std::uint32_t>(dataCapacity), &receivedLength));
     length = receivedLength;
     return result;
   }
@@ -123,8 +129,8 @@ public:
    * @return 返回读取成功、队列为空、Port 未就绪或参数错误等结果。
    */
   template <std::size_t Size>
-  [[nodiscard]] static ReceiveResult
-  TryRead(std::array<std::uint8_t, Size> &data, std::size_t &length) noexcept {
+  [[nodiscard]] static ReceiveResult TryRead(std::array<std::uint8_t, Size> &data, std::size_t &length) noexcept
+  {
     return TryRead(data.data(), data.size(), length);
   }
 
@@ -135,14 +141,14 @@ public:
    * @return 返回已启动、忙、未连接或参数错误等结果。
    * @note 仅供任务上下文调用，每次只允许一帧在途。
    */
-  [[nodiscard]] static TransmitResult TryWrite(const std::uint8_t *data,
-                                               std::size_t length) noexcept {
-    if (length > std::numeric_limits<std::uint32_t>::max()) {
+  [[nodiscard]] static TransmitResult TryWrite(const std::uint8_t *data, std::size_t length) noexcept
+  {
+    if (length > std::numeric_limits<std::uint32_t>::max())
+    {
       return TransmitResult::InvalidArgument;
     }
 
-    return ToTransmitResult(
-        UsbCdcPort_TryWrite(data, static_cast<std::uint32_t>(length)));
+    return ToTransmitResult(UsbCdcPort_TryWrite(data, static_cast<std::uint32_t>(length)));
   }
 
   /**
@@ -152,8 +158,8 @@ public:
    * @return 返回已启动、忙、未连接或参数错误等结果。
    */
   template <std::size_t Size>
-  [[nodiscard]] static TransmitResult
-  TryWrite(const std::array<std::uint8_t, Size> &data) noexcept {
+  [[nodiscard]] static TransmitResult TryWrite(const std::array<std::uint8_t, Size> &data) noexcept
+  {
     return TryWrite(data.data(), data.size());
   }
 
@@ -163,9 +169,11 @@ public:
    * @return Port 已初始化并成功取得统计时返回 true。
    * @note MAY 能力：Port 可能返回 false（未实现），业务应按全 0 统计处理。
    */
-  [[nodiscard]] static bool GetStatistics(Statistics &statistics) noexcept {
+  [[nodiscard]] static bool GetStatistics(Statistics &statistics) noexcept
+  {
     UsbCdcPort_Statistics portStatistics{};
-    if (!UsbCdcPort_GetStatistics(&portStatistics)) {
+    if (!UsbCdcPort_GetStatistics(&portStatistics))
+    {
       return false;
     }
 
@@ -185,11 +193,9 @@ private:
    * @param result C ABI 接收结果。
    * @return 对应的 C++ 接收结果，未知值统一转换为 ReceiveResult::Error。
    */
-  [[nodiscard]] static constexpr ReceiveResult
-  ToReceiveResult(UsbCdcPort_ReceiveResult result) noexcept {
-    return result <= USB_CDC_PORT_RECEIVE_ERROR
-               ? static_cast<ReceiveResult>(result)
-               : ReceiveResult::Error;
+  [[nodiscard]] static constexpr ReceiveResult ToReceiveResult(UsbCdcPort_ReceiveResult result) noexcept
+  {
+    return result <= USB_CDC_PORT_RECEIVE_ERROR ? static_cast<ReceiveResult>(result) : ReceiveResult::Error;
   }
 
   /**
@@ -197,11 +203,9 @@ private:
    * @param result C ABI 发送结果。
    * @return 对应的 C++ 发送结果，未知值统一转换为 TransmitResult::Error。
    */
-  [[nodiscard]] static constexpr TransmitResult
-  ToTransmitResult(UsbCdcPort_TransmitResult result) noexcept {
-    return result <= USB_CDC_PORT_TRANSMIT_ERROR
-               ? static_cast<TransmitResult>(result)
-               : TransmitResult::Error;
+  [[nodiscard]] static constexpr TransmitResult ToTransmitResult(UsbCdcPort_TransmitResult result) noexcept
+  {
+    return result <= USB_CDC_PORT_TRANSMIT_ERROR ? static_cast<TransmitResult>(result) : TransmitResult::Error;
   }
 };
 

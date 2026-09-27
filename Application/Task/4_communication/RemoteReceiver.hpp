@@ -6,9 +6,11 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace application {
+namespace application
+{
 
-class RemoteReceiver final {
+class RemoteReceiver final
+{
 public:
   static constexpr std::size_t ChannelCount{protocol::SbusParser::ChannelCount};
   static constexpr std::uint16_t ChannelMinimum{321U};
@@ -16,7 +18,8 @@ public:
   static constexpr std::uint16_t ChannelMaximum{1663U};
   static constexpr std::uint32_t LinkTimeoutMs{100U};
 
-  struct Snapshot final {
+  struct Snapshot final
+  {
     std::array<std::uint16_t, ChannelCount> channels{};
     bool digitalChannel17{false};
     bool digitalChannel18{false};
@@ -44,8 +47,7 @@ public:
   [[nodiscard]] static bool GetSnapshot(Snapshot &snapshot) noexcept;
 
   // 使用当前接收机实测标定值，将指定通道钳位并归一化到 [-1, 1]。
-  [[nodiscard]] static float NormalizeChannel(const Snapshot &snapshot,
-                                              std::size_t channel) noexcept;
+  [[nodiscard]] static float NormalizeChannel(const Snapshot &snapshot, std::size_t channel) noexcept;
 };
 
 } // namespace application

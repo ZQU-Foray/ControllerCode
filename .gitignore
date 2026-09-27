@@ -38,6 +38,8 @@ output/
 .agent/
 User_Configs/
 .idea/
-Tests/
+Tests/*
 AGENTS.md
+.clang-format
+.clang-tidy
 
